@@ -1,0 +1,141 @@
+#!/system/bin/sh
+
+[ -f /system/etc/lockAppNet.conf ] || exit 0
+
+##############################################################
+day=`date +%u`
+time=$(( $(date +%s) $(date +%z|cut -c 1)  $(($(date +%z|cut -c 2)*3600+$(date +%z|cut -c 3)*3600+$(date +%z|cut -c 4)*600+$(date +%z|cut -c 5)*60)) ))
+timeinday=$(($time % 86400))
+nextmorning=$((6*3600))
+readonly=0
+hostsconfig=/system/etc/hosts
+[ -w /system ] && readonly=1
+
+#check network lock is opened,if opened,do not disable network
+netlock=`getprop android.network.lockAppNet`
+[  "$netlock" = "" ]  && netlock=1
+#############################################################
+cat /system/etc/lockAppNet.conf | while read Line; do
+   if echo $Line | grep -q "^[[:space:]]*#"; then
+        continue;
+   elif echo $Line | grep -q "^[[:space:]]*$"; then
+        continue;
+   fi
+   lockhost=$(echo "$Line"|sed -e "s/\([[:alnum:]\.\*]*\)[[:space:]]*\(.*\)/\1\$\2"/)
+   echo "LOCKHOST:$lockhost"
+   [ "$lockhost" = "" ] && break
+   if ! echo "${lockhost}" | grep -q "\$" ; then 
+	continue
+   fi
+   hostname=$(echo "${lockhost}"|cut -d$ -f1)
+   plans=$(echo "${lockhost}"|cut -d$ -f2)
+   
+   if [ "${hostname}" != "*" ]; then
+       if ! grep -q "127\.0\.0\.1.*${hostname}" ${hostsconfig}; then
+           [ $readonly -eq 0 ] && mount -o remount,rw /system
+           [ -f ${hostsconfig} ] || echo "" >> ${hostsconfig}
+           echo "127.0.0.1      ${hostname}" >> ${hostsconfig}
+       fi
+   fi
+   timeif=1
+   timeset=(1 2 3 4 5 6 7 8 9)
+   for j in ${timeset[@]}; do
+        if [ $j -gt 1 ]; then
+           echo "$plans" | grep -q ","
+           [ $? -ne 0 ] && break
+        fi
+        plani=$(echo "$plans"|cut -d, -f$j)
+        [ "$plani" = "" ] && break;
+        plan_time=$(echo "$plani"|cut -d' ' -f1)
+        plan_day=$(echo "$plani"|cut -d' ' -f2)
+        [ "$plan_time" = "" -o "$plan_day" = "" ] && continue
+        ptime1=$(echo "$plan_time"|cut -d- -f1)
+        ptime2=""
+        if echo "$plan_time"|grep -q "-"; then
+        	ptime2=$(echo "$plan_time"|cut -d- -f2)
+	fi
+        if echo "$ptime1" | grep -q ":"; then
+            ptime1_hour=$(echo "$ptime1"|cut -d: -f1)
+            ptime1_min=$(echo "$ptime1"|cut -d: -f2)
+            ptime1=$(($ptime1_hour*3600+$ptime1_min*60))
+        elif [ "$ptime1" != "*" ]; then
+            ptime1=$(($ptime1*3600))
+        fi
+        if echo "$ptime2" | grep -q ":"; then
+            ptime2_hour=$(echo "$ptime2"|cut -d: -f1)
+            ptime2_min=$(echo "$ptime2"|cut -d: -f2)
+            ptime2=$(($ptime2_hour*3600+$ptime2_min*60))
+        elif [ "$ptime2" != "*" -a "$ptime2" != "" ]; then
+            ptime2=$(($ptime2*3600))
+        fi
+        
+        pday2=""
+        pday1=$(echo "$plan_day"|cut -d- -f1)
+        if echo "$plan_day"|grep -q "-"; then
+        	pday2=$(echo "$plan_day"|cut -d- -f2)
+	fi
+	timeifdi=""
+        if [ "$pday1" != "*" ]; then
+            if [ "$pday2" = "" ]; then
+                timeifdi="$day -eq $pday1"
+            else
+                timeifdi="$day -ge $pday1 -a $day -le $pday2"
+	    fi
+        fi
+
+	timeifti=""
+        if [ "$ptime2" = "" -a "$ptime1" != "*" ]; then
+            timeifti="$timeinday -ge $ptime1 -o $timeinday -le $nextmorning"
+        elif [ "$ptime1" != "*" ]; then
+            if [ $ptime2 -ge $ptime1 ]; then
+            	timeifti="$timeinday -ge $ptime1 -a $timeinday -le $ptime2"
+	    else
+                timeifti="$timeinday -ge $ptime1 -o $timeinday -le $ptime2"
+	    fi
+        fi
+        timeifi=1
+        if [ "$timeifdi" != "" -a "$timeifti" != "" ]; then
+                [ $timeifdi ] && [ $timeifti ] && timeifi=0
+	elif [ "$timeifdi" != "" ]; then
+		[ $timeifdi ] && timeifi=0
+	elif [ "$timeifti" != "" ]; then
+		[ $timeifti ] && timeifi=0
+	else
+		continue
+ 	fi
+        
+        if [ $timeifi -eq 0 ]; then
+	    timeif=0
+            break
+        fi
+        if [ "${hostname}" != "*" ]; then
+            break
+        fi
+    done
+    if [ $timeif -eq 0 -a $netlock -eq 1 ] ; then
+	 echo "$hostname===>disable"
+         if [ "${hostname}" != "*" ]; then
+             if  grep -q "^#.*${hostname}" ${hostsconfig}; then
+                [ $readonly -eq 0 ] && mount -o remount,rw /system
+                sed -e "s/#*\([^#]*${hostname}.*\)/\1/g" -i ${hostsconfig}
+             fi
+         else
+             iptables -P INPUT DROP
+         fi
+    else
+	 echo "$hostname===>enable"
+         if [ "${hostname}" != "*" ]; then
+             if ! grep -q "^#.*${hostname}" ${hostsconfig}; then
+                 [ $readonly -eq 0 ] && mount -o remount,rw /system
+	         sed -e "s/\([^#]*${hostname}.*\)/#\1/g" -i ${hostsconfig}
+             fi
+         else
+             iptables -P INPUT ACCEPT
+         fi
+   fi
+            
+done
+[ $readonly -eq 0 -a -w /system ] && mount -o remount,ro /system
+
+
+exit 0
