@@ -3,15 +3,44 @@
 # Auto set packagemanager to updateonly mode.
 # You can rename this file with '-' prefix filename to disable it.
 #
+systemConfigPath=/data/system
+getLauncher(){
+    launcherCount=`grep -rs android.intent.category.HOME $systemConfigPath/ | wc -l`
+    [  $launcherCount -eq 0 ] && exit 
+    i=1
+    until [ $i -gt $launcherCount ]; do
+         linetext=`grep -rsn android.intent.category.HOME $systemConfigPath/ | eval sed -n ${i}p`
+         lineno=`echo $linetext | cut -d: -f2`
+         filepath=`echo $linetext | cut -d: -f1`
+         stext=''
+         j=`expr $lineno - 1`
+         until [ $j -lt 1 ]; do
+                    stext=`sed -n ${j}p $filepath`
+                    if echo $stext | grep -q '<item'; then
+                           break;
+                    fi
+                    j=`expr $j - 1 `
+         done
+         if echo $stext | grep -q 'always=\"true\"'; then
+                launcher=`echo $stext | sed -e 's:.*name=\"\([^\/\"]*\).*:\1:'`
+                break;
+         fi
+         i=`expr $i + 1`
+    done
+    echo $launcher
+}
 
+currentLauncher=$(getLauncher)
 myname=`basename $0`
 if [ "${myname:0:1}" != "-" ]; then
    if [ -f /etc/.pmReadOnly -o -f /data/.pmReadOnly -o -f /storage/sdcard0/.pmReadOnly ]; then
-       #wait for boot complete
-        while ! ps | grep -q mcd; do
-              sleep 5
-        done
-
+        if [ _$currentLauncher = _ ]; then
+	     sleep 90
+	else
+             while ! ps | grep -q $currentLauncher; do  
+                  sleep 5
+             done
+	fi
         setprop ctl.stop installd
         setprop android.pm.readonly 1
    else
