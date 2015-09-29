@@ -22,7 +22,7 @@ cat /system/etc/lockAppNet.conf | while read Line; do
         continue;
    fi
    lockhost=$(echo "$Line"|sed -e "s/\([[:alnum:]\.\*]*\)[[:space:]]*\(.*\)/\1\$\2"/)
-   echo "LOCKHOST:$lockhost"
+   #echo "LOCKHOST:$lockhost"
    [ "$lockhost" = "" ] && break
    if ! echo "${lockhost}" | grep -q "\$" ; then 
 	continue
