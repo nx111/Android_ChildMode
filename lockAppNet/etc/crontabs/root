@@ -1,1 +1,4 @@
-*/15 8-23 * * *  /system/bin/lockAppNet
+*/15 8-23 *     *   *  /system/bin/lockAppNet
+0    0    *     *   *  /system/bin/lockAppNet -s default
+10   0    1-7   10  *  /system/bin/lockAppNet -s holiday
+10   0    1     5   *  /system/bin/lockAppNet -s holiday
