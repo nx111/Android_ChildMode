@@ -2,6 +2,21 @@
 
 [ -f /system/etc/lockAppNet.conf ] || exit 0
 
+setRuleClass()
+{
+   if [ $# -lt 2 -o "$1" != "-s" -a "$1" != "-setclass" ]; then
+        echo "Usage:$0 -s <rule_class>"
+        return
+   fi
+   setprop android.lockAppNet.ruleClass $2
+   echo $2 >/data/property/android.lockAppNet.ruleClass
+}
+
+if [ $# -eq 2 ]; then
+   setRuleClass $*
+   return 
+fi
+
 ##############################################################
 day=`date +%u`
 time=$(( $(date +%s) $(date +%z|cut -c 1)  $(($(date +%z|cut -c 2)*3600+$(date +%z|cut -c 3)*3600+$(date +%z|cut -c 4)*600+$(date +%z|cut -c 5)*60)) ))
@@ -10,6 +25,11 @@ nextmorning=$((6*3600))
 readonly=0
 hostsconfig=/system/etc/hosts
 [ -w /system ] && readonly=1
+
+ruleClassName=`getprop android.lockAppNet.ruleClass`
+if [ "$ruleClassName" = "" ]; then
+   [ -f /data/property/android.lockAppNet.ruleClass ] && ruleClassName=$(cat /data/property/android.lockAppNet.ruleClass)
+fi
 
 #check network lock is opened,if opened,do not disable network
 netlock=`getprop android.network.lockAppNet`
@@ -21,13 +41,29 @@ cat /system/etc/lockAppNet.conf | while read Line; do
    elif echo $Line | grep -q "^[[:space:]]*$"; then
         continue;
    fi
-   lockhost=$(echo "$Line"|sed -e "s/\([[:alnum:]\.\*]*\)[[:space:]]*\(.*\)/\1\$\2"/)
-   #echo "LOCKHOST:$lockhost"
+   lockhost=$(echo "$Line"|sed -e "s/\([[:graph:]]*\)[[:space:]]*\(.*\)/\1\$\2"/)
    [ "$lockhost" = "" ] && break
    if ! echo "${lockhost}" | grep -q "\$" ; then 
 	continue
    fi
    hostname=$(echo "${lockhost}"|cut -d$ -f1)
+   rulename=""
+   if echo $hostname | grep -q ":"; then
+       rulename=$(echo "$hostname" | cut -d\: -f1)
+       hostname=$(echo "$hostname" | cut -d\: -f2)
+   fi
+   skipme=0
+   if [ "$ruleClassName" = "" -o  "$ruleClassName" = "default" ]; then
+       [ "$rulename" != "" -o "$rulename" != "default" ] && skipme=1
+   elif [ "$ruleClassName" != "$rulename" ]; then
+       skipme=1 
+   fi
+   if [ $skipme -eq 1 ]; then
+       echo "Skip : $Line"
+       continue
+   fi
+   echo "Apply: $Line"
+   
    plans=$(echo "${lockhost}"|cut -d$ -f2)
    
    if [ "${hostname}" != "*" ]; then
@@ -38,8 +74,8 @@ cat /system/etc/lockAppNet.conf | while read Line; do
        fi
    fi
    timeif=1
-   timeset=(1 2 3 4 5 6 7 8 9)
-   for j in ${timeset[@]}; do
+   j=1
+   until [ $j -lt 0 -o $j -gt 100 ]; do
         if [ $j -gt 1 ]; then
            echo "$plans" | grep -q ","
            [ $? -ne 0 ] && break
@@ -101,6 +137,7 @@ cat /system/etc/lockAppNet.conf | while read Line; do
 	elif [ "$timeifti" != "" ]; then
 		[ $timeifti ] && timeifi=0
 	else
+                j=`expr $j + 1`
 		continue
  	fi
         
@@ -111,6 +148,7 @@ cat /system/etc/lockAppNet.conf | while read Line; do
         if [ "${hostname}" != "*" ]; then
             break
         fi
+        j=`expr $j + 1`
     done
     if [ $timeif -eq 0 -a $netlock -eq 1 ] ; then
 	 echo "$hostname===>disable"
