@@ -1,41 +1,25 @@
 #!/system/bin/sh
 
-[ -f /system/etc/lockAppNet.conf ] || exit 0
-
-setRuleClass()
-{
-   if [ $# -lt 2 -o "$1" != "-s" -a "$1" != "-setclass" ]; then
-        echo "Usage:$0 -s <rule_class>"
-        return
-   fi
-   setprop android.lockAppNet.ruleClass $2
-   echo $2 >/data/property/android.lockAppNet.ruleClass
-}
-
-if [ $# -eq 2 ]; then
-   setRuleClass $*
-   return 
-fi
+[ -f /system/etc/lockAppNet.conf -o -f /data/system/lockAppNet.conf ] || exit 0
 
 ##############################################################
 day=`date +%u`
+today=`date +%m%d`
 time=$(( $(date +%s) $(date +%z|cut -c 1)  $(($(date +%z|cut -c 2)*3600+$(date +%z|cut -c 3)*3600+$(date +%z|cut -c 4)*600+$(date +%z|cut -c 5)*60)) ))
 timeinday=$(($time % 86400))
 nextmorning=$((6*3600))
 readonly=0
 hostsconfig=/system/etc/hosts
 [ -w /system ] && readonly=1
-
-ruleClassName=`getprop android.lockAppNet.ruleClass`
-if [ "$ruleClassName" = "" ]; then
-   [ -f /data/property/android.lockAppNet.ruleClass ] && ruleClassName=$(cat /data/property/android.lockAppNet.ruleClass)
-fi
+configfile=/system/etc/lockAppNet.conf
+[ -f /data/system/lockAppNet.conf ] && configfile=/data/system/lockAppNet.conf
+ruleClassName=""
 
 #check network lock is opened,if opened,do not disable network
 netlock=`getprop android.network.lockAppNet`
 [  "$netlock" = "" ]  && netlock=1
 #############################################################
-cat /system/etc/lockAppNet.conf | while read Line; do
+cat ${configfile} | while read Line; do
    if echo $Line | grep -q "^[[:space:]]*#"; then
         continue;
    elif echo $Line | grep -q "^[[:space:]]*$"; then
@@ -48,7 +32,38 @@ cat /system/etc/lockAppNet.conf | while read Line; do
    fi
    hostname=$(echo "${lockhost}"|cut -d$ -f1)
    rulename=""
-   if echo $hostname | grep -q ":"; then
+   if [ "$hostname" = "HOLIDAYS" ]; then
+       holidays=$(echo "${lockhost}"|cut -d$ -f2)
+       j=1
+       until [ $j -lt 0 -o $j -gt 100 ]; do
+           if [ $j -gt 1 ]; then
+               echo "$holidays" | grep -q ","
+               [ $? -ne 0 ] && break
+           fi
+           holidayi=$(echo $holidays| cut -d, -f$j)
+           [ "$holidayi" = "" ] && break
+           holidayi1=$(echo $holidayi|cut -d- -f1)
+           holidayi2=""
+           if echo $holidayi | grep -q "-"; then
+                 holidayi2=$(echo $holidayi | cut -d- -f2)
+                 if [ $today -ge $holidayi1 -a $today -le $holidayi2 ]; then
+                     ruleClassName="holiday"
+                     break;
+                 fi
+           elif [ $today -eq $holidayi1 ]; then
+                 ruleClassName="holiday"
+                 break;
+           fi
+           j=$(expr $j + 1)
+       done
+       continue
+   elif [ "$hostname" = "CONFIG_URL" -a $# -gt 1 -a "$1" = "-u"  ]; then
+       config_url=$(echo "${lockhost}" | cut -d$ -f2)
+       if wget -O /data/system/lockAppNet.conf.tmp  ${config_url}; then
+            mv /data/system/lockAppNet.conf.tmp /data/system/lockAppNet.conf
+       fi
+       exit
+   elif echo $hostname | grep -q ":"; then
        rulename=$(echo "$hostname" | cut -d\: -f1)
        hostname=$(echo "$hostname" | cut -d\: -f2)
    fi
