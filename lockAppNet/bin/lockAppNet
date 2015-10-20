@@ -69,7 +69,7 @@ cat ${configfile} | while read Line; do
    fi
    skipme=0
    if [ "$ruleClassName" = "" -o  "$ruleClassName" = "default" ]; then
-       [ "$rulename" != "" -o "$rulename" != "default" ] && skipme=1
+       [ "$rulename" != "" -a "$rulename" != "default" ] && skipme=1
    elif [ "$ruleClassName" != "$rulename" ]; then
        skipme=1 
    fi
