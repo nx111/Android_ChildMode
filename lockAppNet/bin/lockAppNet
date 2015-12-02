@@ -17,7 +17,7 @@ ruleClassName=""
 
 #check network lock is opened,if opened,do not disable network
 netlock=`getprop android.network.lockAppNet`
-[  "$netlock" = "" ]  && netlock=1
+[  "$netlock" = "" ]  && netlock=0
 #############################################################
 cat ${configfile} | while read Line; do
    if echo $Line | grep -q "^[[:space:]]*#"; then
@@ -165,8 +165,7 @@ cat ${configfile} | while read Line; do
         fi
         j=`expr $j + 1`
     done
-    if [ $timeif -eq 0 -a $netlock -eq 1 ] ; then
-	 echo "$hostname===>disable"
+    if [ $timeif -eq 0 -a $netlock -eq 0 ] ; then
          if [ "${hostname}" != "*" ]; then
              if  grep -q "^#.*${hostname}" ${hostsconfig}; then
                 [ $readonly -eq 0 ] && mount -o remount,rw /system
@@ -175,8 +174,9 @@ cat ${configfile} | while read Line; do
          else
              iptables -P INPUT DROP
          fi
+	 echo "               $hostname===>disabled"
+	 setprop android.network.lockAppNet 1
     else
-	 echo "$hostname===>enable"
          if [ "${hostname}" != "*" ]; then
              if ! grep -q "^#.*${hostname}" ${hostsconfig}; then
                  [ $readonly -eq 0 ] && mount -o remount,rw /system
@@ -185,6 +185,8 @@ cat ${configfile} | while read Line; do
          else
              iptables -P INPUT ACCEPT
          fi
+	 echo "               $hostname===>enabled"
+	 setprop android.network.lockAppNet 0
    fi
             
 done
