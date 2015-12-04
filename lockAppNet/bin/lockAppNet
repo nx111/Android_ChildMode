@@ -14,11 +14,58 @@ hostsconfig=/system/etc/hosts
 configfile=/system/etc/lockAppNet.conf
 [ -f /data/system/lockAppNet.conf ] && configfile=/data/system/lockAppNet.conf
 ruleClassName=""
+whitelist=""
 
 #check network lock is opened,if opened,do not disable network
 netlock=`getprop android.network.lockAppNet`
 [  "$netlock" = "" ]  && netlock=0
 #############################################################
+##check busybox grep sed cut 
+errorflag=0
+if ! which busybox >/dev/null; then 
+   echo "ERROR: Need busybox!"
+   errorflag=1
+fi
+if ! which grep >/dev/null; then 
+   echo "ERROR: Need grep!"
+   errorflag=1
+fi
+if ! which sed >/dev/null; then 
+   echo "ERROR: Need sed!"
+   errorflag=1
+fi
+if ! which cut >/dev/null; then 
+   echo "ERROR: Need cut!"
+   errorflag=1
+fi
+
+
+
+getAppUID()
+{
+    [ $# -lt 1 ] && return 1
+    if grep -w "^$1[[:space:]]" /data/system/packages.list | cut -d' ' -f2 >/dev/null 2>/dev/null; then
+        grep -w "^$1[[:space:]]" /data/system/packages.list | cut -d' ' -f2
+        return 0
+    fi
+    return 1
+}
+ApplyWhiteList()
+{
+   [ "$whitelist" = "" ] && return 0
+   local appname=""
+   local appuid=""
+   i=1
+   until [ $i -lt 0 -o $i -gt 200 ]; do
+       appname=$(echo $whitelist | cut -d, -f$i) 
+       [ $? -eq 1 -a "$appname" = "" ] && break; 
+       appuid=$(getAppUID $appname)
+       [ $? -eq 1 -a "$appuid" = "" ] && break; 
+       iptables -A OUTPUT -m owner --uid-owner  $appuid -j ACCEPT
+       i=$(expr $i + 1)
+   done
+}
+###############################################################
 cat ${configfile} | while read Line; do
    if echo $Line | grep -q "^[[:space:]]*#"; then
         continue;
@@ -63,6 +110,9 @@ cat ${configfile} | while read Line; do
             mv /data/system/lockAppNet.conf.tmp /data/system/lockAppNet.conf
        fi
        exit
+   elif [ "$hostname" = "APP_WHITELIST" ]; then
+	if [ "$whitelist" != "" ]&& whitelist="${whitelist},"
+	whitelist="$whitelist"$(echo "${lockhost}"|cut -d$ -f2)
    elif echo $hostname | grep -q ":"; then
        rulename=$(echo "$hostname" | cut -d\: -f1)
        hostname=$(echo "$hostname" | cut -d\: -f2)
@@ -173,6 +223,7 @@ cat ${configfile} | while read Line; do
              fi
          else
              iptables -P OUTPUT DROP
+             ApplyWhiteList
          fi
 	 echo "               $hostname===>disabled"
 	 setprop android.network.lockAppNet 1
