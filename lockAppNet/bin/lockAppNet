@@ -54,6 +54,7 @@ getAppUID()
 ApplyWhiteList()
 {
    whitelist=$(cat /data/property/lockAppNet.whitelist)
+   [ "$whitelist" != "" ] && echo "AppWhiteList:	$whitelist"
    itemcount=$(echo $whitelist | grep -o "," | wc -l)
    itemcount=$((itemcount + 1))
    [ "$whitelist" = "" ] && return 0
@@ -121,9 +122,10 @@ cat ${configfile} | while read Line; do
        fi
        exit
    elif [ "$hostname" = "APP_WHITELIST" ]; then
+        [ -f /data/property/lockAppNet.whitelist ] && whitelist=$(cat /data/property/lockAppNet.whitelist)
 	[ "$whitelist" != "" ] && whitelist="${whitelist},"
 	echo "$whitelist"$(echo "${lockhost}"|cut -d$ -f2) > /data/property/lockAppNet.whitelist
-        echo "Apply: $Line"
+        #echo "Apply: $Line"
         continue
    elif echo $hostname | grep -q ":"; then
        rulename=$(echo "$hostname" | cut -d\: -f1)
@@ -254,6 +256,7 @@ cat ${configfile} | while read Line; do
 done
 globalNet=$(getprop lockAppNet.globalNet)
 if [ "$globalNet" = "1" ] ; then
+      iptables -F
       iptables -P OUTPUT DROP
       iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
       # allow DNS
@@ -264,10 +267,11 @@ if [ "$globalNet" = "1" ] ; then
       # allow ping
       iptables -A OUTPUT -p icmp --icmp-type 8  -j ACCEPT                             
       ApplyWhiteList
-      echo " Network is disabled!"
+      echo "	Network is disabled!"
 elif [ "$globalNet" = "2" ]; then
+      iptables -F
       iptables -P OUTPUT ACCEPT
-      echo " Network is enabled!"
+      echo "	Network is enabled!"
 fi    
 setprop lockAppNet.globalNet ""
 rm -f /data/property/lockAppNet.globalNet
