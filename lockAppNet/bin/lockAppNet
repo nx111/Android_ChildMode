@@ -172,7 +172,7 @@ cat ${configfile} | while read Line; do
                 sed -e "s/#*\([^#]*${hostname}.*\)/\1/g" -i ${hostsconfig}
              fi
          else
-             iptables -P INPUT DROP
+             iptables -P OUTPUT DROP
          fi
 	 echo "               $hostname===>disabled"
 	 setprop android.network.lockAppNet 1
@@ -183,7 +183,7 @@ cat ${configfile} | while read Line; do
 	         sed -e "s/\([^#]*${hostname}.*\)/#\1/g" -i ${hostsconfig}
              fi
          else
-             iptables -P INPUT ACCEPT
+             iptables -P OUTPUT ACCEPT
          fi
 	 echo "               $hostname===>enabled"
 	 setprop android.network.lockAppNet 0
