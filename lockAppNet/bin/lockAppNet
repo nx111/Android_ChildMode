@@ -256,7 +256,8 @@ globalNet=$(getprop lockAppNet.globalNet)
 if [ "$globalNet" = "1" ] ; then
       iptables -P OUTPUT DROP
       iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT                          
-      iptables -A OUTPUT -p udp -m udp --dport 53 -j ACCEPT                                     
+      iptables -A OUTPUT -p udp -m udp --dport 53 -j ACCEPT
+      iptables -A OUTPUT -p icmp --icmp-type 8  -j ACCEPT                             
       ApplyWhiteList
       echo " Network is disabled!"
 elif [ "$globalNet" = "2" ]; then
