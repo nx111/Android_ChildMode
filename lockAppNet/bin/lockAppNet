@@ -15,6 +15,7 @@ configfile=/system/etc/lockAppNet.conf
 [ -f /data/system/lockAppNet.conf ] && configfile=/data/system/lockAppNet.conf
 ruleClassName=""
 whitelist=""
+globalNet=0
 
 #check network lock is opened,if opened,do not disable network
 netlock=`getprop android.network.lockAppNet`
@@ -52,15 +53,24 @@ getAppUID()
 }
 ApplyWhiteList()
 {
+   whitelist=$(cat /data/property/lockAppNet.whitelist)
+   itemcount=$(echo $whitelist | grep -o "," | wc -l)
+   itemcount=$((itemcount + 1))
    [ "$whitelist" = "" ] && return 0
    local appname=""
    local appuid=""
-   i=1
-   until [ $i -lt 0 -o $i -gt 200 ]; do
+   i=0
+   until [ $i -lt 0 -o $i -gt $itemcount ]; do
        appname=$(echo $whitelist | cut -d, -f$i) 
-       [ $? -eq 1 -a "$appname" = "" ] && break; 
+       if [ $? -eq 1 -o "$appname" = "" ]; then 
+              i=$(expr $i + 1)
+              continue
+       fi 
        appuid=$(getAppUID $appname)
-       [ $? -eq 1 -a "$appuid" = "" ] && break; 
+       if [ $? -eq 1 -o "$appuid" = "" ]; then 
+              i=$(expr $i + 1)
+              continue
+       fi 
        iptables -A OUTPUT -m owner --uid-owner  $appuid -j ACCEPT
        i=$(expr $i + 1)
    done
@@ -111,8 +121,10 @@ cat ${configfile} | while read Line; do
        fi
        exit
    elif [ "$hostname" = "APP_WHITELIST" ]; then
-	if [ "$whitelist" != "" ]&& whitelist="${whitelist},"
-	whitelist="$whitelist"$(echo "${lockhost}"|cut -d$ -f2)
+	[ "$whitelist" != "" ] && whitelist="${whitelist},"
+	echo "$whitelist"$(echo "${lockhost}"|cut -d$ -f2) > /data/property/lockAppNet.whitelist
+        echo "Apply: $Line"
+        continue
    elif echo $hostname | grep -q ":"; then
        rulename=$(echo "$hostname" | cut -d\: -f1)
        hostname=$(echo "$hostname" | cut -d\: -f2)
@@ -221,11 +233,10 @@ cat ${configfile} | while read Line; do
                 [ $readonly -eq 0 ] && mount -o remount,rw /system
                 sed -e "s/#*\([^#]*${hostname}.*\)/\1/g" -i ${hostsconfig}
              fi
+             echo "     $hostname===>disabled"
          else
-             iptables -P OUTPUT DROP
-             ApplyWhiteList
+             setprop lockAppNet.globalNet 1
          fi
-	 echo "               $hostname===>disabled"
 	 setprop android.network.lockAppNet 1
     else
          if [ "${hostname}" != "*" ]; then
@@ -233,14 +244,29 @@ cat ${configfile} | while read Line; do
                  [ $readonly -eq 0 ] && mount -o remount,rw /system
 	         sed -e "s/\([^#]*${hostname}.*\)/#\1/g" -i ${hostsconfig}
              fi
+	     echo "      $hostname===>enabled"
          else
-             iptables -P OUTPUT ACCEPT
+             setprop lockAppNet.globalNet 2
          fi
-	 echo "               $hostname===>enabled"
 	 setprop android.network.lockAppNet 0
    fi
             
 done
+globalNet=$(getprop lockAppNet.globalNet)
+if [ "$globalNet" = "1" ] ; then
+      iptables -P OUTPUT DROP
+      iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT                          
+      iptables -A OUTPUT -p udp -m udp --dport 53 -j ACCEPT                                     
+      ApplyWhiteList
+      echo " Network is disabled!"
+elif [ "$globalNet" = "2" ]; then
+      iptables -P OUTPUT ACCEPT
+      echo " Network is enabled!"
+fi    
+setprop lockAppNet.globalNet ""
+rm -f /data/property/lockAppNet.globalNet
+rm -f /data/property/lockAppNet.whitelist 
+         
 [ $readonly -eq 0 -a -w /system ] && mount -o remount,ro /system
 
 
