@@ -229,6 +229,7 @@ cat ${configfile} | while read Line; do
         fi
         j=`expr $j + 1`
     done
+    globalNet=$(getprop lockAppNet.globalNet)
     if [ $timeif -eq 0 -a $netlock -eq 0 ] ; then
          if [ "${hostname}" != "*" ]; then
              if  grep -q "^#.*${hostname}" ${hostsconfig}; then
@@ -236,7 +237,7 @@ cat ${configfile} | while read Line; do
                 sed -e "s/#*\([^#]*${hostname}.*\)/\1/g" -i ${hostsconfig}
              fi
              echo "     $hostname===>disabled"
-         else
+         elif [ "$globalNet" != "1" -a "$globalNet" != "2" ]; then
              setprop lockAppNet.globalNet 1
          fi
 	 setprop android.network.lockAppNet 1
@@ -247,7 +248,7 @@ cat ${configfile} | while read Line; do
 	         sed -e "s/\([^#]*${hostname}.*\)/#\1/g" -i ${hostsconfig}
              fi
 	     echo "      $hostname===>enabled"
-         else
+         elif [ "$globalNet" != "1" -a "$globalNet" != "2" ]; then
              setprop lockAppNet.globalNet 2
          fi
 	 setprop android.network.lockAppNet 0
