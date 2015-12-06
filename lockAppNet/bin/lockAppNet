@@ -45,8 +45,8 @@ fi
 getAppUID()
 {
     [ $# -lt 1 ] && return 1
-    if grep -w "^$1[[:space:]]" /data/system/packages.list | cut -d' ' -f2 >/dev/null 2>/dev/null; then
-        grep -w "^$1[[:space:]]" /data/system/packages.list | cut -d' ' -f2
+    if grep "^[^[:space:]]*\.\{0,1\}$1[\.[:space:]]\{1,\}.*" /data/system/packages.list >/dev/null 2>/dev/null; then
+        grep "^[^[:space:]]*\.\{0,1\}$1[\.[:space:]]\{1,\}.*" /data/system/packages.list  | cut -d' ' -f2 | sed ':a;N;s/\n/,/;ba'
         return 0
     fi
     return 1
