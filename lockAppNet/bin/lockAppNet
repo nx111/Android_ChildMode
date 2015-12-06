@@ -141,8 +141,11 @@ cat ${configfile} | while read Line; do
        echo "Skip : $Line"
        continue
    fi
-   echo "Apply: $Line"
-   
+   if [ $netlock -eq 0 ]; then
+	echo "Disable Rule: $Line"
+   elif [ $netlock -eq 1 ]; then
+        echo "Apply Rule: $Line
+   fi
    plans=$(echo "${lockhost}"|cut -d$ -f2)
    
    if [ "${hostname}" != "*" ]; then
