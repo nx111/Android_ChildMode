@@ -19,7 +19,10 @@ globalNet=0
 
 #check network lock is opened,if opened,do not disable network
 netlock=`getprop android.network.lockAppNet`
-[  "$netlock" = "" ]  && netlock=0
+if [  "$netlock" = "" ]; then
+  netlock=1
+  setprop android.network.lockAppNet 1
+fi
 #############################################################
 ##check busybox grep sed cut 
 errorflag=0
@@ -72,7 +75,14 @@ ApplyWhiteList()
               i=$(expr $i + 1)
               continue
        fi 
-       iptables -A OUTPUT -m owner --uid-owner  $appuid -j ACCEPT
+       k=0
+       uidcount=$(echo $appuid | grep -o "," | wc -l)
+       uidcount=$((uidcount + 1))
+       until [ $k -gt $uidcount ]; do
+            uiditem=$(echo $appuid| cut -d, -f$uidcount)
+            iptables -A OUTPUT -m owner --uid-owner  $uiditem -j ACCEPT
+            k=$(expr $k + 1)
+       done
        i=$(expr $i + 1)
    done
 }
@@ -138,13 +148,13 @@ cat ${configfile} | while read Line; do
        skipme=1 
    fi
    if [ $skipme -eq 1 ]; then
-       echo "Skip : $Line"
-       continue
+        echo "Skip :        $Line"
+        continue
    fi
    if [ $netlock -eq 0 ]; then
 	echo "Disable Rule: $Line"
    elif [ $netlock -eq 1 ]; then
-        echo "Apply Rule: $Line
+        echo "Apply Rule:   $Line"
    fi
    plans=$(echo "${lockhost}"|cut -d$ -f2)
    
@@ -233,7 +243,7 @@ cat ${configfile} | while read Line; do
         j=`expr $j + 1`
     done
     globalNet=$(getprop lockAppNet.globalNet)
-    if [ $timeif -eq 0 -a $netlock -eq 0 ] ; then
+    if [ $timeif -eq 0 -a $netlock -eq 1 ] ; then
          if [ "${hostname}" != "*" ]; then
              if  grep -q "^#.*${hostname}" ${hostsconfig}; then
                 [ $readonly -eq 0 ] && mount -o remount,rw /system
@@ -243,7 +253,6 @@ cat ${configfile} | while read Line; do
          elif [ "$globalNet" != "1" -a "$globalNet" != "2" ]; then
              setprop lockAppNet.globalNet 1
          fi
-	 setprop android.network.lockAppNet 1
     else
          if [ "${hostname}" != "*" ]; then
              if ! grep -q "^#.*${hostname}" ${hostsconfig}; then
@@ -254,7 +263,6 @@ cat ${configfile} | while read Line; do
          elif [ "$globalNet" != "1" -a "$globalNet" != "2" ]; then
              setprop lockAppNet.globalNet 2
          fi
-	 setprop android.network.lockAppNet 0
    fi
             
 done
