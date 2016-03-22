@@ -1,6 +1,11 @@
 #!/system/bin/sh
+prefix=
+hostsconfig=$prefix/system/etc/hosts
+configfile=$prefix/system/etc/lockAppNet.conf
+configfile2=$prefix/data/system/lockAppNet.conf
 
-[ -f /system/etc/lockAppNet.conf -o -f /data/system/lockAppNet.conf ] || exit 0
+[ -f $configfile2 ] && configfile=$configfile2
+[ -f $configfile -o -f $configfile2 ] || exit 0
 
 ##############################################################
 day=`date +%u`
@@ -9,10 +14,7 @@ time=$(( $(date +%s) $(date +%z|cut -c 1)  $(($(date +%z|cut -c 2)*3600+$(date +
 timeinday=$(($time % 86400))
 nextmorning=$((6*3600))
 readonly=0
-hostsconfig=/system/etc/hosts
-[ -w /system ] && readonly=1
-configfile=/system/etc/lockAppNet.conf
-[ -f /data/system/lockAppNet.conf ] && configfile=/data/system/lockAppNet.conf
+[ -w $prefix/system ] && readonly=1
 ruleClassName=""
 whitelist=""
 globalNet=0
@@ -48,15 +50,15 @@ fi
 getAppUID()
 {
     [ $# -lt 1 ] && return 1
-    if grep "^[^[:space:]]*\.\{0,1\}$1[\.[:space:]]\{1,\}.*" /data/system/packages.list >/dev/null 2>/dev/null; then
-        grep "^[^[:space:]]*\.\{0,1\}$1[\.[:space:]]\{1,\}.*" /data/system/packages.list  | cut -d' ' -f2 | sed ':a;N;s/\n/,/;ba'
+    if grep "^[^[:space:]]*\.\{0,1\}$1[\.[:space:]]\{1,\}.*" $prefix/data/system/packages.list >/dev/null 2>/dev/null; then
+        grep "^[^[:space:]]*\.\{0,1\}$1[\.[:space:]]\{1,\}.*" $prefix/data/system/packages.list  | cut -d' ' -f2 | sed ':a;N;s/\n/,/;ba'
         return 0
     fi
     return 1
 }
 ApplyWhiteList()
 {
-   whitelist=$(cat /data/property/lockAppNet.whitelist)
+   whitelist=$(cat $prefix/data/property/lockAppNet.whitelist)
    [ "$whitelist" != "" ] && echo "AppWhiteList:        $whitelist"
    itemcount=$(echo $whitelist | grep -o "," | wc -l)
    itemcount=$((itemcount + 1))
@@ -141,6 +143,8 @@ now_in_time()
                 else
                     timeifdi="$day -ge $pday1 -a $day -le $pday2"
                 fi
+            else
+                timeifdi=0
             fi
 
             local timeifti=""
@@ -152,6 +156,8 @@ now_in_time()
                 else
                     timeifti="$timeinday -ge $ptime1 -o $timeinday -le $ptime2"
                 fi
+            elif [ "$ptime1" == "*" ]; then
+                timeifti=0
             fi
             local timeifi=1
             if [ "$timeifdi" != "" -a "$timeifti" != "" ]; then
@@ -222,14 +228,14 @@ cat ${configfile} | while read Line; do
        continue
    elif [ "$hostname" = "CONFIG_URL" -a $# -gt 1 -a "$1" = "-u"  -a "$blockname" = "Main" ]; then
        config_url=$(echo "${lockhost}" | cut -d$ -f2)
-       if wget -O /data/system/lockAppNet.conf.tmp  ${config_url}; then
-            mv /data/system/lockAppNet.conf.tmp /data/system/lockAppNet.conf
+       if wget -O $prefix/data/system/lockAppNet.conf.tmp  ${config_url}; then
+            mv $prefix/data/system/lockAppNet.conf.tmp $prefix/data/system/lockAppNet.conf
        fi
        exit
    elif [ "$hostname" = "APP_WHITELIST"  -a "$blockname" = "Main" ]; then
-        [ -f /data/property/lockAppNet.whitelist ] && whitelist=$(cat /data/property/lockAppNet.whitelist)
+        [ -f $prefix/data/property/lockAppNet.whitelist ] && whitelist=$(cat $prefix/data/property/lockAppNet.whitelist)
         [ "$whitelist" != "" ] && whitelist="${whitelist},"
-        echo "$whitelist"$(echo "${lockhost}"|cut -d$ -f2) > /data/property/lockAppNet.whitelist
+        echo "$whitelist"$(echo "${lockhost}"|cut -d$ -f2) > $prefix/data/property/lockAppNet.whitelist
         #echo "Apply: $Line"
         continue
    elif [ "$blockname" = "Network" ]; then
@@ -257,7 +263,7 @@ cat ${configfile} | while read Line; do
    
        if [ "${hostname}" != "*" ]; then
            if ! grep -q "127\.0\.0\.1.*${hostname}" ${hostsconfig}; then
-               [ $readonly -eq 0 ] && mount -o remount,rw /system
+               [ $readonly -eq 0 ] && mount -o remount,rw $prefix/system
                [ -f ${hostsconfig} ] || echo "" >> ${hostsconfig}
                echo "127.0.0.1      ${hostname}" >> ${hostsconfig}
            fi
@@ -268,7 +274,7 @@ cat ${configfile} | while read Line; do
        if [ $timeif -eq 0 -a $netlock -eq 1 ] ; then
              if [ "${hostname}" != "*" ]; then
                  if grep -q "^#.*${hostname}" ${hostsconfig}; then
-                     [ $readonly -eq 0 ] && mount -o remount,rw /system
+                     [ $readonly -eq 0 ] && mount -o remount,rw $prefix/system
                      sed -e "s/#*\([^#]*${hostname}.*\)/\1/g" -i ${hostsconfig}
                  fi
                  echo "     $hostname===>disabled"
@@ -290,7 +296,7 @@ cat ${configfile} | while read Line; do
         else
              if [ "${hostname}" != "*" ]; then
                  if ! grep -q "^#.*${hostname}" ${hostsconfig}; then
-                     [ $readonly -eq 0 ] && mount -o remount,rw /system
+                     [ $readonly -eq 0 ] && mount -o remount,rw $prefix/system
                      sed -e "s/\([^#]*${hostname}.*\)/#\1/g" -i ${hostsconfig}
                  fi
                  echo "      $hostname===>enabled"
@@ -333,10 +339,10 @@ cat ${configfile} | while read Line; do
 done
 setprop lockAppNet.globalNet ""
 setprop lockAppNet.conf.block ""
-rm -f /data/property/lockAppNet.globalNet
-rm -f /data/property/lockAppNet.whitelist 
+rm -f $prefix/data/property/lockAppNet.globalNet
+rm -f $prefix/data/property/lockAppNet.whitelist 
          
-[ $readonly -eq 0 -a -w /system ] && mount -o remount,ro /system
+[ $readonly -eq 0 -a -w $prefix/system ] && mount -o remount,ro $prefix/system
 
 
 exit 0
