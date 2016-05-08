@@ -1,6 +1,7 @@
 #!/system/bin/sh
 
 [ -f /system/etc/lockAppNet.conf ] || exit 0
+setprop android.network.lockAppNet 1
 /system/bin/lockAppNet
 
 if [ -f /data/crontabs/root ]; then 

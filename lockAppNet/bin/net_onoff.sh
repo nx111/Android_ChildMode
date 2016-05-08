@@ -1,7 +1,7 @@
 #!/system/bin/sh
 
 netlock=`getprop android.network.lockAppNet`
-[  "$netlock" = "" ]  && netlock="0"
+[  "$netlock" = "" ]  && netlock="1"
 if [ "$netlock" = "0" ]; then
    setprop android.network.lockAppNet 1
    echo "...... enable lockAppNet......"

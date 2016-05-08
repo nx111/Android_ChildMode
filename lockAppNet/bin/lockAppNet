@@ -181,6 +181,8 @@ now_in_time()
 }
 ###############################################################
 setprop lockAppNet.conf.block ""
+setprop lockAppNet.whitelist.imported ""
+
 cat ${configfile} | while read Line; do
    Line=$(echo "$Line" | sed "s/#.*$//g")
    if echo "$Line" | grep -q "^[[:space:]]*#"; then
@@ -232,10 +234,12 @@ cat ${configfile} | while read Line; do
             mv $prefix/data/system/lockAppNet.conf.tmp $prefix/data/system/lockAppNet.conf
        fi
        exit
-   elif [ "$hostname" = "APP_WHITELIST"  -a "$blockname" = "Main" ]; then
+   elif [ "${hostname:0:13}" = "APP_WHITELIST"  -a "$blockname" = "Main" ]; then
         [ -f $prefix/data/property/lockAppNet.whitelist ] && whitelist=$(cat $prefix/data/property/lockAppNet.whitelist)
         [ "$whitelist" != "" ] && whitelist="${whitelist},"
-        echo "$whitelist"$(echo "${lockhost}"|cut -d$ -f2) > $prefix/data/property/lockAppNet.whitelist
+	[ _${getprop lockAppNet.whitelist.imported} = _1 ] && rm -f $prefix/data/property/lockAppNet.whitelist
+        echo "$whitelist"$(echo "${lockhost}"|cut -d$ -f2) >> $prefix/data/property/lockAppNet.whitelist
+	setprop lockAppNet.whitelist.imported 1
         #echo "Apply: $Line"
         continue
    elif [ "$blockname" = "Network" ]; then
