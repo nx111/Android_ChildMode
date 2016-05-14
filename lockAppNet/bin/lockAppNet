@@ -25,6 +25,12 @@ if [  "$netlock" = "" ]; then
       netlock=1
       setprop android.network.lockAppNet 1
 fi
+if [ ! -d $prefix/data/crontabs/lockAppNet ]; then
+	mkdir $prefix/data/crontabs
+	mkdir $prefix/data/crontabs/lockAppNet
+fi
+echo "">$prefix/data/crontabs/lockAppNet/root
+
 #############################################################
 ##check busybox grep sed cut 
 errorflag=0
@@ -89,7 +95,22 @@ ApplyWhiteList()
    done
 }
 
+#mkcrontab(vday,vhour,vmin)
+mkcrontab()
+{
+  	if [ $# -lt 3 ]; then
+		return 
+  	fi
+  	local vday="$1"
+  	local vhour="$2"
+  	local vmin="$3"
+        [ "$vday" = "" ] && vday="*"
+        [ "$vhour" = "" ] && vhour="*"
+        [ "$vmin" = "" ] && vmin="*"
+        [ "$vday" = "*" -a "$vhour" = "*" -a "$vmin" = "*" ] && return
 
+	echo "$vmin $vhour      *      *  $vday   $0" >> $prefix/data/crontabs/lockAppNet/root
+}
 now_in_time()
 {
     if [ $# -lt 1 ]; then
@@ -113,19 +134,24 @@ now_in_time()
             [ "$plan_time" = "" -o "$plan_day" = "" ] && continue
             local ptime1=$(echo "$plan_time"|cut -d- -f1)
             local ptime2=""
+	    local ptime1_hour=""
+	    local ptime1_min=""
+	    local ptime2_hour=""
+	    local ptime2_min=""
+
             if echo "$plan_time"|grep -q "-"; then
                 ptime2=$(echo "$plan_time"|cut -d- -f2)
             fi
             if echo "$ptime1" | grep -q ":"; then
-                local ptime1_hour=$(echo "$ptime1"|cut -d: -f1)
-                local ptime1_min=$(echo "$ptime1"|cut -d: -f2)
+                ptime1_hour=$(echo "$ptime1"|cut -d: -f1)
+                ptime1_min=$(echo "$ptime1"|cut -d: -f2)
                 ptime1=$(($ptime1_hour*3600+$ptime1_min*60))
             elif [ "$ptime1" != "*" ]; then
                 ptime1=$(($ptime1*3600))
             fi
             if echo "$ptime2" | grep -q ":"; then
-                local ptime2_hour=$(echo "$ptime2"|cut -d: -f1)
-                local ptime2_min=$(echo "$ptime2"|cut -d: -f2)
+                ptime2_hour=$(echo "$ptime2"|cut -d: -f1)
+                ptime2_min=$(echo "$ptime2"|cut -d: -f2)
                 ptime2=$(($ptime2_hour*3600+$ptime2_min*60))
             elif [ "$ptime2" != "*" -a "$ptime2" != "" ]; then
                 ptime2=$(($ptime2*3600))
@@ -136,6 +162,13 @@ now_in_time()
             if echo "$plan_day"|grep -q "-"; then
                 pday2=$(echo "$plan_day"|cut -d- -f2)
             fi
+
+            
+	    mkcrontab "$pday1" "$ptime1_hour" "$ptime2_min"
+            [ "$pday2" != "" ] && mkcrontab "$pday1" "$ptime1_hour" "$ptime1_min"
+            [ "$ptime2_hour" != "" -a "$ptime2_min" != "" ] && mkcrontab "$pday1" "$ptime2_hour" "$ptime2_min"
+            [ "$ptime2_hour" != "" -a "$ptime2_min" != "" -a "$pday2" != "" ] && mkcrontab "$pday2" "$ptime2_hour" "$ptime2_min"
+
             local timeifdi=""
             if [ "$pday1" != "*" ]; then
                 if [ "$pday2" = "" ]; then
@@ -237,7 +270,8 @@ cat ${configfile} | while read Line; do
    elif [ "${hostname:0:13}" = "APP_WHITELIST"  -a "$blockname" = "Main" ]; then
         [ -f $prefix/data/property/lockAppNet.whitelist ] && whitelist=$(cat $prefix/data/property/lockAppNet.whitelist)
         [ "$whitelist" != "" ] && whitelist="${whitelist},"
-	[ _${getprop lockAppNet.whitelist.imported} = _1 ] && rm -f $prefix/data/property/lockAppNet.whitelist
+	[ _$(getprop lockAppNet.whitelist.imported) = _1 ] && rm -f $prefix/data/property/lockAppNet.whitelist
+        [ -f $prefix/data/property/lockAppNet.whitelist ] || touch $prefix/data/property/lockAppNet.whitelist
         echo "$whitelist"$(echo "${lockhost}"|cut -d$ -f2) >> $prefix/data/property/lockAppNet.whitelist
 	setprop lockAppNet.whitelist.imported 1
         #echo "Apply: $Line"

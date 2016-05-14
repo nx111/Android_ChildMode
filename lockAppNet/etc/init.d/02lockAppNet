@@ -4,8 +4,8 @@
 setprop android.network.lockAppNet 1
 /system/bin/lockAppNet
 
-if [ -f /data/crontabs/root ]; then 
-   crond -c /data/crontabs
-elif [ -f /system/etc/crontabs/root ]; then
-   crond -c /system/etc/crontabs
+if [ -f /data/crontabs/lockAppNet/root ]; then 
+   crond -c /data/crontabs/lockAppNet
+elif [ -f /system/etc/crontabs/lockAppNet/root ]; then
+   crond -c /system/etc/crontabs/lockAppNet
 fi
