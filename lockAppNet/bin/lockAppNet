@@ -164,10 +164,8 @@ now_in_time()
             fi
 
             
-	    mkcrontab "$pday1" "$ptime1_hour" "$ptime2_min"
-            [ "$pday2" != "" ] && mkcrontab "$pday1" "$ptime1_hour" "$ptime1_min"
-            [ "$ptime2_hour" != "" -a "$ptime2_min" != "" ] && mkcrontab "$pday1" "$ptime2_hour" "$ptime2_min"
-            [ "$ptime2_hour" != "" -a "$ptime2_min" != "" -a "$pday2" != "" ] && mkcrontab "$pday2" "$ptime2_hour" "$ptime2_min"
+            mkcrontab "$plan_day" "$ptime1_hour" "$ptime1_min"
+            [ "$ptime2_hour" != "" -a "$ptime2_min" != "" ] && mkcrontab "$plan_day" "$ptime2_hour" "$ptime2_min"
 
             local timeifdi=""
             if [ "$pday1" != "*" ]; then
