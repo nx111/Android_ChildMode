@@ -1,6 +1,11 @@
 #!/system/bin/sh
+prefix=
+hostsconfig=$prefix/system/etc/hosts
+configfile=$prefix/system/etc/lockAppNet.conf
+configfile2=$prefix/data/system/lockAppNet.conf
 
-[ -f /system/etc/lockAppNet.conf -o -f /data/system/lockAppNet.conf ] || exit 0
+[ -f $configfile2 ] && configfile=$configfile2
+[ -f $configfile -o -f $configfile2 ] || exit 0
 
 ##############################################################
 day=`date +%u`
@@ -9,17 +14,23 @@ time=$(( $(date +%s) $(date +%z|cut -c 1)  $(($(date +%z|cut -c 2)*3600+$(date +
 timeinday=$(($time % 86400))
 nextmorning=$((6*3600))
 readonly=0
-hostsconfig=/system/etc/hosts
-[ -w /system ] && readonly=1
-configfile=/system/etc/lockAppNet.conf
-[ -f /data/system/lockAppNet.conf ] && configfile=/data/system/lockAppNet.conf
+[ -w $prefix/system ] && readonly=1
 ruleClassName=""
 whitelist=""
 globalNet=0
 
 #check network lock is opened,if opened,do not disable network
 netlock=`getprop android.network.lockAppNet`
-[  "$netlock" = "" ]  && netlock=0
+if [  "$netlock" = "" ]; then
+      netlock=1
+      setprop android.network.lockAppNet 1
+fi
+if [ ! -d $prefix/data/crontabs/lockAppNet ]; then
+	mkdir $prefix/data/crontabs
+	mkdir $prefix/data/crontabs/lockAppNet
+fi
+echo "">$prefix/data/crontabs/lockAppNet/root
+
 #############################################################
 ##check busybox grep sed cut 
 errorflag=0
@@ -45,15 +56,16 @@ fi
 getAppUID()
 {
     [ $# -lt 1 ] && return 1
-    if grep -w "^$1[[:space:]]" /data/system/packages.list | cut -d' ' -f2 >/dev/null 2>/dev/null; then
-        grep -w "^$1[[:space:]]" /data/system/packages.list | cut -d' ' -f2
+    if grep "^[^[:space:]]*\.\{0,1\}$1[\.[:space:]]\{1,\}.*" $prefix/data/system/packages.list >/dev/null 2>/dev/null; then
+        grep "^[^[:space:]]*\.\{0,1\}$1[\.[:space:]]\{1,\}.*" $prefix/data/system/packages.list  | cut -d' ' -f2 | sed ':a;N;s/\n/,/;ba'
         return 0
     fi
     return 1
 }
 ApplyWhiteList()
 {
-   whitelist=$(cat /data/property/lockAppNet.whitelist)
+   whitelist=$(cat $prefix/data/property/lockAppNet.whitelist)
+   [ "$whitelist" != "" ] && echo "AppWhiteList:        $whitelist"
    itemcount=$(echo $whitelist | grep -o "," | wc -l)
    itemcount=$((itemcount + 1))
    [ "$whitelist" = "" ] && return 0
@@ -61,7 +73,7 @@ ApplyWhiteList()
    local appuid=""
    i=0
    until [ $i -lt 0 -o $i -gt $itemcount ]; do
-       appname=$(echo $whitelist | cut -d, -f$i) 
+       appname=$(echo "$whitelist" | cut -d, -f$i) 
        if [ $? -eq 1 -o "$appname" = "" ]; then 
               i=$(expr $i + 1)
               continue
@@ -71,25 +83,158 @@ ApplyWhiteList()
               i=$(expr $i + 1)
               continue
        fi 
-       iptables -A OUTPUT -m owner --uid-owner  $appuid -j ACCEPT
+       k=0
+       uidcount=$(echo $appuid | grep -o "," | wc -l)
+       uidcount=$((uidcount + 1))
+       until [ $k -gt $uidcount ]; do
+            uiditem=$(echo $appuid| cut -d, -f$uidcount)
+            iptables -A OUTPUT -m owner --uid-owner  $uiditem -j ACCEPT
+            k=$(expr $k + 1)
+       done
        i=$(expr $i + 1)
    done
 }
+
+#mkcrontab(vday,vhour,vmin)
+mkcrontab()
+{
+  	if [ $# -lt 3 ]; then
+		return 
+  	fi
+  	local vday="$1"
+  	local vhour="$2"
+  	local vmin="$3"
+        [ "$vday" = "" ] && vday="*"
+        [ "$vhour" = "" ] && vhour="*"
+        [ "$vmin" = "" ] && vmin="*"
+        [ "$vday" = "*" -a "$vhour" = "*" -a "$vmin" = "*" ] && return
+
+	echo "$vmin $vhour      *      *  $vday   $0" >> $prefix/data/crontabs/lockAppNet/root
+}
+now_in_time()
+{
+    if [ $# -lt 1 ]; then
+        echo 1
+        return 1
+    fi
+    local plans=$1
+    local timeif=1
+    local j=1
+    local i_plan_count=$(( $(echo "$plans" | grep  -o ','| wc -l) + 1 ))
+
+    until [ $j -lt 0 -o $j -gt ${i_plan_count} ]; do
+    #        if [ $j -gt 1 ]; then
+    #           echo "$plans" | grep -q ","
+    #           [ $? -ne 0 ] && break
+    #        fi
+            local plani=$(echo "$plans"|cut -d, -f$j)
+            [ "$plani" = "" ] && break;
+            local plan_time=$(echo "$plani"|cut -d' ' -f1)
+            local plan_day=$(echo "$plani"|cut -d' ' -f2)
+            [ "$plan_time" = "" -o "$plan_day" = "" ] && continue
+            local ptime1=$(echo "$plan_time"|cut -d- -f1)
+            local ptime2=""
+	    local ptime1_hour=""
+	    local ptime1_min=""
+	    local ptime2_hour=""
+	    local ptime2_min=""
+
+            if echo "$plan_time"|grep -q "-"; then
+                ptime2=$(echo "$plan_time"|cut -d- -f2)
+            fi
+            if echo "$ptime1" | grep -q ":"; then
+                ptime1_hour=$(echo "$ptime1"|cut -d: -f1)
+                ptime1_min=$(echo "$ptime1"|cut -d: -f2)
+                ptime1=$(($ptime1_hour*3600+$ptime1_min*60))
+            elif [ "$ptime1" != "*" ]; then
+                ptime1=$(($ptime1*3600))
+            fi
+            if echo "$ptime2" | grep -q ":"; then
+                ptime2_hour=$(echo "$ptime2"|cut -d: -f1)
+                ptime2_min=$(echo "$ptime2"|cut -d: -f2)
+                ptime2=$(($ptime2_hour*3600+$ptime2_min*60))
+            elif [ "$ptime2" != "*" -a "$ptime2" != "" ]; then
+                ptime2=$(($ptime2*3600))
+            fi
+
+            local pday2=""
+            local pday1=$(echo "$plan_day"|cut -d- -f1)
+            if echo "$plan_day"|grep -q "-"; then
+                pday2=$(echo "$plan_day"|cut -d- -f2)
+            fi
+
+            
+            mkcrontab "$plan_day" "$ptime1_hour" "$ptime1_min"
+            [ "$ptime2_hour" != "" -a "$ptime2_min" != "" ] && mkcrontab "$plan_day" "$ptime2_hour" "$ptime2_min"
+
+            local timeifdi=""
+            if [ "$pday1" != "*" ]; then
+                if [ "$pday2" = "" ]; then
+                    timeifdi="$day -eq $pday1"
+                else
+                    timeifdi="$day -ge $pday1 -a $day -le $pday2"
+                fi
+            else
+                timeifdi=0
+            fi
+
+            local timeifti=""
+            if [ "$ptime2" = "" -a "$ptime1" != "*" ]; then
+                timeifti="$timeinday -ge $ptime1 -o $timeinday -le $nextmorning"
+            elif [ "$ptime1" != "*" ]; then
+                if [ $ptime2 -ge $ptime1 ]; then
+                    timeifti="$timeinday -ge $ptime1 -a $timeinday -le $ptime2"
+                else
+                    timeifti="$timeinday -ge $ptime1 -o $timeinday -le $ptime2"
+                fi
+            elif [ "$ptime1" == "*" ]; then
+                timeifti=0
+            fi
+            local timeifi=1
+            if [ "$timeifdi" != "" -a "$timeifti" != "" ]; then
+                [ $timeifdi ] && [ $timeifti ] && timeifi=0
+            elif [ "$timeifdi" != "" ]; then
+                [ $timeifdi ] && timeifi=0
+            elif [ "$timeifti" != "" ]; then
+                [ $timeifti ] && timeifi=0
+            else
+                j=`expr $j + 1`
+                continue
+            fi
+
+            if [ $timeifi -eq 0 ]; then
+                timeif=0
+                break
+            fi
+            j=`expr $j + 1`
+    done
+    echo $timeif
+}
 ###############################################################
+setprop lockAppNet.conf.block ""
+setprop lockAppNet.whitelist.imported ""
+
 cat ${configfile} | while read Line; do
-   if echo $Line | grep -q "^[[:space:]]*#"; then
+   Line=$(echo "$Line" | sed "s/#.*$//g")
+   if echo "$Line" | grep -q "^[[:space:]]*#"; then
         continue;
-   elif echo $Line | grep -q "^[[:space:]]*$"; then
+   elif echo "$Line" | grep -q "^[[:space:]]*$"; then
         continue;
    fi
+   if echo "$Line" |  grep -q "[[:space:]]*\[\{1,\}.*\]\{1,\}[[:space:]]*$"; then
+        blockname=$(echo "$Line"|sed "s/[[:space:]]*\[\{1,\}[[:space:]]*\(.*\)[[:space:]]*\]\{1,\}[[:space:]]*$/\1/")
+        setprop lockAppNet.conf.block "$blockname"
+        continue;
+   fi
+   blockname=$(getprop lockAppNet.conf.block)
    lockhost=$(echo "$Line"|sed -e "s/\([[:graph:]]*\)[[:space:]]*\(.*\)/\1\$\2"/)
    [ "$lockhost" = "" ] && break
    if ! echo "${lockhost}" | grep -q "\$" ; then 
-	continue
+        continue
    fi
    hostname=$(echo "${lockhost}"|cut -d$ -f1)
    rulename=""
-   if [ "$hostname" = "HOLIDAYS" ]; then
+   if [ "$hostname" = "HOLIDAYS" -a "$blockname" = "Main" ]; then
        holidays=$(echo "${lockhost}"|cut -d$ -f2)
        j=1
        until [ $j -lt 0 -o $j -gt 100 ]; do
@@ -97,12 +242,12 @@ cat ${configfile} | while read Line; do
                echo "$holidays" | grep -q ","
                [ $? -ne 0 ] && break
            fi
-           holidayi=$(echo $holidays| cut -d, -f$j)
+           holidayi=$(echo "$holidays" | cut -d, -f$j)
            [ "$holidayi" = "" ] && break
-           holidayi1=$(echo $holidayi|cut -d- -f1)
+           holidayi1=$(echo "$holidayi" | cut -d- -f1)
            holidayi2=""
-           if echo $holidayi | grep -q "-"; then
-                 holidayi2=$(echo $holidayi | cut -d- -f2)
+           if echo "$holidayi" | grep -q "-"; then
+                 holidayi2=$(echo "$holidayi" | cut -d- -f2)
                  if [ $today -ge $holidayi1 -a $today -le $holidayi2 ]; then
                      ruleClassName="holiday"
                      break;
@@ -114,166 +259,126 @@ cat ${configfile} | while read Line; do
            j=$(expr $j + 1)
        done
        continue
-   elif [ "$hostname" = "CONFIG_URL" -a $# -gt 1 -a "$1" = "-u"  ]; then
+   elif [ "$hostname" = "CONFIG_URL" -a $# -gt 1 -a "$1" = "-u"  -a "$blockname" = "Main" ]; then
        config_url=$(echo "${lockhost}" | cut -d$ -f2)
-       if wget -O /data/system/lockAppNet.conf.tmp  ${config_url}; then
-            mv /data/system/lockAppNet.conf.tmp /data/system/lockAppNet.conf
+       if wget -O $prefix/data/system/lockAppNet.conf.tmp  ${config_url}; then
+            mv $prefix/data/system/lockAppNet.conf.tmp $prefix/data/system/lockAppNet.conf
        fi
        exit
-   elif [ "$hostname" = "APP_WHITELIST" ]; then
-	[ "$whitelist" != "" ] && whitelist="${whitelist},"
-	echo "$whitelist"$(echo "${lockhost}"|cut -d$ -f2) > /data/property/lockAppNet.whitelist
-        echo "Apply: $Line"
+   elif [ "${hostname:0:13}" = "APP_WHITELIST"  -a "$blockname" = "Main" ]; then
+        [ -f $prefix/data/property/lockAppNet.whitelist ] && whitelist=$(cat $prefix/data/property/lockAppNet.whitelist)
+        [ "$whitelist" != "" ] && whitelist="${whitelist},"
+	[ _$(getprop lockAppNet.whitelist.imported) = _1 ] && rm -f $prefix/data/property/lockAppNet.whitelist
+        [ -f $prefix/data/property/lockAppNet.whitelist ] || touch $prefix/data/property/lockAppNet.whitelist
+        echo "$whitelist"$(echo "${lockhost}"|cut -d$ -f2) >> $prefix/data/property/lockAppNet.whitelist
+	setprop lockAppNet.whitelist.imported 1
+        #echo "Apply: $Line"
         continue
-   elif echo $hostname | grep -q ":"; then
-       rulename=$(echo "$hostname" | cut -d\: -f1)
-       hostname=$(echo "$hostname" | cut -d\: -f2)
-   fi
-   skipme=0
-   if [ "$ruleClassName" = "" -o  "$ruleClassName" = "default" ]; then
-       [ "$rulename" != "" -a "$rulename" != "default" ] && skipme=1
-   elif [ "$ruleClassName" != "$rulename" ]; then
-       skipme=1 
-   fi
-   if [ $skipme -eq 1 ]; then
-       echo "Skip : $Line"
-       continue
-   fi
-   echo "Apply: $Line"
-   
-   plans=$(echo "${lockhost}"|cut -d$ -f2)
-   
-   if [ "${hostname}" != "*" ]; then
-       if ! grep -q "127\.0\.0\.1.*${hostname}" ${hostsconfig}; then
-           [ $readonly -eq 0 ] && mount -o remount,rw /system
-           [ -f ${hostsconfig} ] || echo "" >> ${hostsconfig}
-           echo "127.0.0.1      ${hostname}" >> ${hostsconfig}
+   elif [ "$blockname" = "Network" ]; then
+   #######################################################
+       if echo "$hostname" | grep -q ":"; then
+           rulename=$(echo "$hostname" | cut -d\: -f1)
+           hostname=$(echo "$hostname" | cut -d\: -f2)
        fi
-   fi
-   timeif=1
-   j=1
-   until [ $j -lt 0 -o $j -gt 100 ]; do
-        if [ $j -gt 1 ]; then
-           echo "$plans" | grep -q ","
-           [ $? -ne 0 ] && break
+       skipme=0
+       if [ "$ruleClassName" = "" -o  "$ruleClassName" = "default" ]; then
+           [ "$rulename" != "" -a "$rulename" != "default" ] && skipme=1
+       elif [ "$ruleClassName" != "$rulename" ]; then
+           skipme=1
+       fi
+       if [ $skipme -eq 1 ]; then
+           echo "Skip : $Line"
+           continue
+       fi
+       if [ $netlock -eq 0 ]; then
+            echo "Disable Rule: $Line"
+       elif [ $netlock -eq 1 ]; then
+            echo "Apply Rule: $Line"
+       fi
+       plans=$(echo "${lockhost}"|cut -d$ -f2)
+   
+       if [ "${hostname}" != "*" ]; then
+           if ! grep -q "127\.0\.0\.1.*${hostname}" ${hostsconfig}; then
+               [ $readonly -eq 0 ] && mount -o remount,rw $prefix/system
+               [ -f ${hostsconfig} ] || echo "" >> ${hostsconfig}
+               echo "127.0.0.1      ${hostname}" >> ${hostsconfig}
+           fi
+       fi
+       timeif=1
+       timeif=$(now_in_time "$plans")
+       globalNet=$(getprop lockAppNet.globalNet)
+       if [ $timeif -eq 0 -a $netlock -eq 1 ] ; then
+             if [ "${hostname}" != "*" ]; then
+                 if grep -q "^#.*${hostname}" ${hostsconfig}; then
+                     [ $readonly -eq 0 ] && mount -o remount,rw $prefix/system
+                     sed -e "s/#*\([^#]*${hostname}.*\)/\1/g" -i ${hostsconfig}
+                 fi
+                 echo "     $hostname===>disabled"
+             elif [ "$globalNet" != "1" -a "$globalNet" != "2" ]; then
+                 setprop lockAppNet.globalNet 1
+                 iptables -F
+                 iptables -P OUTPUT DROP
+                 iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+                 # allow DNS
+                 iptables -A OUTPUT -p udp -m udp --dport 53 -j ACCEPT
+                 # allow SNTP/NTP
+                 iptables -A OUTPUT -p udp -m udp --dport 123 -j ACCEPT
+                 iptables -A OUTPUT -p tcp -m tcp --dport 123 -j ACCEPT
+                 # allow ping
+                 iptables -A OUTPUT -p icmp --icmp-type 8  -j ACCEPT
+                 ApplyWhiteList
+                 echo "      **Network is disabled!"
+             fi
+        else
+             if [ "${hostname}" != "*" ]; then
+                 if ! grep -q "^#.*${hostname}" ${hostsconfig}; then
+                     [ $readonly -eq 0 ] && mount -o remount,rw $prefix/system
+                     sed -e "s/\([^#]*${hostname}.*\)/#\1/g" -i ${hostsconfig}
+                 fi
+                 echo "      $hostname===>enabled"
+             elif [ "$globalNet" != "1" -a "$globalNet" != "2" ]; then
+                 setprop lockAppNet.globalNet 2
+                 iptables -F
+                 iptables -P OUTPUT ACCEPT
+                 echo "      **Network is enabled!"
+             fi
         fi
-        plani=$(echo "$plans"|cut -d, -f$j)
-        [ "$plani" = "" ] && break;
-        plan_time=$(echo "$plani"|cut -d' ' -f1)
-        plan_day=$(echo "$plani"|cut -d' ' -f2)
-        [ "$plan_time" = "" -o "$plan_day" = "" ] && continue
-        ptime1=$(echo "$plan_time"|cut -d- -f1)
-        ptime2=""
-        if echo "$plan_time"|grep -q "-"; then
-        	ptime2=$(echo "$plan_time"|cut -d- -f2)
-	fi
-        if echo "$ptime1" | grep -q ":"; then
-            ptime1_hour=$(echo "$ptime1"|cut -d: -f1)
-            ptime1_min=$(echo "$ptime1"|cut -d: -f2)
-            ptime1=$(($ptime1_hour*3600+$ptime1_min*60))
-        elif [ "$ptime1" != "*" ]; then
-            ptime1=$(($ptime1*3600))
-        fi
-        if echo "$ptime2" | grep -q ":"; then
-            ptime2_hour=$(echo "$ptime2"|cut -d: -f1)
-            ptime2_min=$(echo "$ptime2"|cut -d: -f2)
-            ptime2=$(($ptime2_hour*3600+$ptime2_min*60))
-        elif [ "$ptime2" != "*" -a "$ptime2" != "" ]; then
-            ptime2=$(($ptime2*3600))
-        fi
-        
-        pday2=""
-        pday1=$(echo "$plan_day"|cut -d- -f1)
-        if echo "$plan_day"|grep -q "-"; then
-        	pday2=$(echo "$plan_day"|cut -d- -f2)
-	fi
-	timeifdi=""
-        if [ "$pday1" != "*" ]; then
-            if [ "$pday2" = "" ]; then
-                timeifdi="$day -eq $pday1"
+    elif  [ "$blockname" = "Application" ]; then
+    #################################################
+       appname=${hostname}
+       appuid=$(getAppUID $appname)
+       if [ $? -eq 1 -o "$appuid" = "" ]; then
+              continue
+       fi
+       k=0
+       uidcount=$(echo $appuid | grep -o "," | wc -l)
+       uidcount=$((uidcount + 1))
+       plans=$(echo "${lockhost}"|cut -d$ -f2)
+       timeif=1
+       until [ $k -gt $uidcount ]; do
+            uiditem=$(echo $appuid| cut -d, -f$uidcount)
+            timeif=$(now_in_time "$plans")
+            if [ "$timeif" = "0" ]; then
+                 iptables -D OUTPUT -m owner --uid-owner  $uiditem -j ACCEPT
+                 iptables -A OUTPUT -m owner --uid-owner  $uiditem -j REJECT
+                 echo "   --Disabled $appname"
             else
-                timeifdi="$day -ge $pday1 -a $day -le $pday2"
-	    fi
-        fi
+                 iptables -D OUTPUT -m owner --uid-owner  $uiditem -j REJECT
+                 iptables -A OUTPUT -m owner --uid-owner  $uiditem -j ACCEPT
+                 echo "   --Enabled $appname"
+            fi
+            k=$(expr $k + 1)
+       done
 
-	timeifti=""
-        if [ "$ptime2" = "" -a "$ptime1" != "*" ]; then
-            timeifti="$timeinday -ge $ptime1 -o $timeinday -le $nextmorning"
-        elif [ "$ptime1" != "*" ]; then
-            if [ $ptime2 -ge $ptime1 ]; then
-            	timeifti="$timeinday -ge $ptime1 -a $timeinday -le $ptime2"
-	    else
-                timeifti="$timeinday -ge $ptime1 -o $timeinday -le $ptime2"
-	    fi
-        fi
-        timeifi=1
-        if [ "$timeifdi" != "" -a "$timeifti" != "" ]; then
-                [ $timeifdi ] && [ $timeifti ] && timeifi=0
-	elif [ "$timeifdi" != "" ]; then
-		[ $timeifdi ] && timeifi=0
-	elif [ "$timeifti" != "" ]; then
-		[ $timeifti ] && timeifi=0
-	else
-                j=`expr $j + 1`
-		continue
- 	fi
-        
-        if [ $timeifi -eq 0 ]; then
-	    timeif=0
-            break
-        fi
-        if [ "${hostname}" != "*" ]; then
-            break
-        fi
-        j=`expr $j + 1`
-    done
-    if [ $timeif -eq 0 -a $netlock -eq 0 ] ; then
-         if [ "${hostname}" != "*" ]; then
-             if  grep -q "^#.*${hostname}" ${hostsconfig}; then
-                [ $readonly -eq 0 ] && mount -o remount,rw /system
-                sed -e "s/#*\([^#]*${hostname}.*\)/\1/g" -i ${hostsconfig}
-             fi
-             echo "     $hostname===>disabled"
-         else
-             setprop lockAppNet.globalNet 1
-         fi
-	 setprop android.network.lockAppNet 1
-    else
-         if [ "${hostname}" != "*" ]; then
-             if ! grep -q "^#.*${hostname}" ${hostsconfig}; then
-                 [ $readonly -eq 0 ] && mount -o remount,rw /system
-	         sed -e "s/\([^#]*${hostname}.*\)/#\1/g" -i ${hostsconfig}
-             fi
-	     echo "      $hostname===>enabled"
-         else
-             setprop lockAppNet.globalNet 2
-         fi
-	 setprop android.network.lockAppNet 0
-   fi
-            
+    fi
+
 done
-globalNet=$(getprop lockAppNet.globalNet)
-if [ "$globalNet" = "1" ] ; then
-      iptables -P OUTPUT DROP
-      iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-      # allow DNS
-      iptables -A OUTPUT -p udp -m udp --dport 53 -j ACCEPT
-      # allow SNTP/NTP
-      iptables -A OUTPUT -p udp -m udp --dport 123 -j ACCEPT
-      iptables -A OUTPUT -p tcp -m tcp --dport 123 -j ACCEPT
-      # allow ping
-      iptables -A OUTPUT -p icmp --icmp-type 8  -j ACCEPT                             
-      ApplyWhiteList
-      echo " Network is disabled!"
-elif [ "$globalNet" = "2" ]; then
-      iptables -P OUTPUT ACCEPT
-      echo " Network is enabled!"
-fi    
 setprop lockAppNet.globalNet ""
-rm -f /data/property/lockAppNet.globalNet
-rm -f /data/property/lockAppNet.whitelist 
+setprop lockAppNet.conf.block ""
+rm -f $prefix/data/property/lockAppNet.globalNet
+rm -f $prefix/data/property/lockAppNet.whitelist 
          
-[ $readonly -eq 0 -a -w /system ] && mount -o remount,ro /system
+[ $readonly -eq 0 -a -w $prefix/system ] && mount -o remount,ro $prefix/system
 
 
 exit 0
