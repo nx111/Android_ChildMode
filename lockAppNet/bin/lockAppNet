@@ -30,7 +30,6 @@ if [ ! -d $prefix/data/crontabs/lockAppNet ]; then
 	mkdir $prefix/data/crontabs/lockAppNet
 fi
 echo "">$prefix/data/crontabs/lockAppNet/root
-
 #############################################################
 ##check busybox grep sed cut 
 errorflag=0
@@ -117,11 +116,11 @@ now_in_time()
         echo 1
         return 1
     fi
-    local plans=$1
+    local plans="$1"
     local timeif=1
     local j=1
     local i_plan_count=$(( $(echo "$plans" | grep  -o ','| wc -l) + 1 ))
-
+    
     until [ $j -lt 0 -o $j -gt ${i_plan_count} ]; do
     #        if [ $j -gt 1 ]; then
     #           echo "$plans" | grep -q ","
@@ -163,10 +162,13 @@ now_in_time()
                 pday2=$(echo "$plan_day"|cut -d- -f2)
             fi
 
-            
-            mkcrontab "$plan_day" "$ptime1_hour" "$ptime1_min"
+            [ "$ptime1_hour" != "" -a "$ptime1_min" != "" ] && mkcrontab "$plan_day" "$ptime1_hour" "$ptime1_min"
             [ "$ptime2_hour" != "" -a "$ptime2_min" != "" ] && mkcrontab "$plan_day" "$ptime2_hour" "$ptime2_min"
 
+            if [ $timeif -eq 0 ]; then
+                 j=`expr $j + 1`
+                 continue
+            fi
             local timeifdi=""
             if [ "$pday1" != "*" ]; then
                 if [ "$pday2" = "" ]; then
@@ -204,7 +206,6 @@ now_in_time()
 
             if [ $timeifi -eq 0 ]; then
                 timeif=0
-                break
             fi
             j=`expr $j + 1`
     done
@@ -296,7 +297,7 @@ cat ${configfile} | while read Line; do
             echo "Apply Rule: $Line"
        fi
        plans=$(echo "${lockhost}"|cut -d$ -f2)
-   
+       echo "lockhost=$lockhost" 
        if [ "${hostname}" != "*" ]; then
            if ! grep -q "127\.0\.0\.1.*${hostname}" ${hostsconfig}; then
                [ $readonly -eq 0 ] && mount -o remount,rw $prefix/system
