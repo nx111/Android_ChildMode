@@ -24,7 +24,19 @@ netlock=`getprop android.network.lockAppNet`
 if [  "$netlock" = "" ]; then
       netlock=1
       setprop android.network.lockAppNet 1
+elif [ "$netlock" = "0" ]; then
+      local offtime=`getprop android.lockAppNet.offtime`
+      if [ "$offtime" != "" ]; then
+          local nowtime=`date +%s`
+          local timediff=$(($nowtime - $offtime))
+          if [ $timediff -ge 3600 -o $timediff -lt 0 ]; then
+               setprop android.lockAppNet.offtime ""
+               setprop android.network.lockAppNet 1
+               netlock=1
+          fi
+      fi
 fi
+
 if [ ! -d $prefix/data/crontabs/lockAppNet ]; then
 	mkdir $prefix/data/crontabs
 	mkdir $prefix/data/crontabs/lockAppNet
@@ -162,8 +174,8 @@ now_in_time()
                 pday2=$(echo "$plan_day"|cut -d- -f2)
             fi
 
-            [ "$ptime1_hour" != "" -a "$ptime1_min" != "" ] && mkcrontab "$plan_day" "$ptime1_hour" "$ptime1_min"
-            [ "$ptime2_hour" != "" -a "$ptime2_min" != "" ] && mkcrontab "$plan_day" "$ptime2_hour" "$ptime2_min"
+            #[ "$ptime1_hour" != "" -a "$ptime1_min" != "" ] && mkcrontab "$plan_day" "$ptime1_hour" "$ptime1_min"
+            #[ "$ptime2_hour" != "" -a "$ptime2_min" != "" ] && mkcrontab "$plan_day" "$ptime2_hour" "$ptime2_min"
 
             if [ $timeif -eq 0 ]; then
                  j=`expr $j + 1`
