@@ -18,6 +18,9 @@ readonly=0
 ruleClassName=""
 whitelist=""
 globalNet=0
+ntpserver="stdtime.gov.hk"
+dns="114.114.114.114"
+time_synced=1
 
 #check network lock is opened,if opened,do not disable network
 netlock=`getprop android.network.lockAppNet`
@@ -41,7 +44,7 @@ if [ ! -d $prefix/data/crontabs/lockAppNet ]; then
 	mkdir $prefix/data/crontabs
 	mkdir $prefix/data/crontabs/lockAppNet
 fi
-echo "">$prefix/data/crontabs/lockAppNet/root
+echo "" > $prefix/data/crontabs/lockAppNet/root
 #############################################################
 ##check busybox grep sed cut 
 errorflag=0
@@ -73,6 +76,17 @@ getAppUID()
     fi
     return 1
 }
+
+getAppName()
+{
+    [ $# -lt 1 ] && return 1
+    if grep "^[^[:space:]]*\.\{0,1\}$1[\.[:space:]]\{1,\}.*" $prefix/data/system/packages.list >/dev/null 2>/dev/null; then
+        grep "^[^[:space:]]*\.\{0,1\}$1[\.[:space:]]\{1,\}.*" $prefix/data/system/packages.list  | cut -d' ' -f1 | sed ':a;N;s/\n/,/;ba'
+        return 0
+    fi
+    return 1
+}
+
 ApplyWhiteList()
 {
    whitelist=$(cat $prefix/data/property/lockAppNet.whitelist)
@@ -106,21 +120,26 @@ ApplyWhiteList()
    done
 }
 
-#mkcrontab(vday,vhour,vmin)
+#mkcrontab(vday,vhour,vmin,vcommand)
 mkcrontab()
 {
-  	if [ $# -lt 3 ]; then
+  	if [ $# -lt 4 ]; then
 		return 
   	fi
   	local vday="$1"
   	local vhour="$2"
   	local vmin="$3"
+        local vcommand="$4"
+        [ "$vcommand" = "" ] && vcommand="$0"
         [ "$vday" = "" ] && vday="*"
         [ "$vhour" = "" ] && vhour="*"
         [ "$vmin" = "" ] && vmin="*"
         [ "$vday" = "*" -a "$vhour" = "*" -a "$vmin" = "*" ] && return
-
-	echo "$vmin $vhour      *      *  $vday   $0" >> $prefix/data/crontabs/lockAppNet/root
+        local newitem="$vmin $vhour      *      *  $vday   $0"
+        local items=$(echo "$newitem" | sed "s/\*/\\\*/g")
+	if !grep -q "$items" $prefix/data/crontabs/lockAppNet/root > /dev/null 2 >/dev/null; then
+             echo "$newitem" >> $prefix/data/crontabs/lockAppNet/root
+        fi
 }
 now_in_time()
 {
@@ -142,57 +161,66 @@ now_in_time()
             [ "$plani" = "" ] && break;
             local plan_time=$(echo "$plani"|cut -d' ' -f1)
             local plan_day=$(echo "$plani"|cut -d' ' -f2)
-            [ "$plan_time" = "" -o "$plan_day" = "" ] && continue
-            local ptime1=$(echo "$plan_time"|cut -d- -f1)
+            local ptime1=""          
             local ptime2=""
 	    local ptime1_hour=""
 	    local ptime1_min=""
 	    local ptime2_hour=""
 	    local ptime2_min=""
-
-            if echo "$plan_time"|grep -q "-"; then
-                ptime2=$(echo "$plan_time"|cut -d- -f2)
-            fi
-            if echo "$ptime1" | grep -q ":"; then
-                ptime1_hour=$(echo "$ptime1"|cut -d: -f1)
-                ptime1_min=$(echo "$ptime1"|cut -d: -f2)
-                ptime1=$(($ptime1_hour*3600+$ptime1_min*60))
-            elif [ "$ptime1" != "*" ]; then
-                ptime1=$(($ptime1*3600))
-            fi
-            if echo "$ptime2" | grep -q ":"; then
-                ptime2_hour=$(echo "$ptime2"|cut -d: -f1)
-                ptime2_min=$(echo "$ptime2"|cut -d: -f2)
-                ptime2=$(($ptime2_hour*3600+$ptime2_min*60))
-            elif [ "$ptime2" != "*" -a "$ptime2" != "" ]; then
-                ptime2=$(($ptime2*3600))
+            local timeifdi=""
+            local timeifti=""
+            if [ "$plan_time" = "-" ]; then
+                timeifdi=2
+            elif [ "$plan_time" != "" ]; then
+                ptime1=$(echo "$plan_time"|cut -d- -f1)
+                if echo "$plan_time"|grep -q "-"; then
+                    ptime2=$(echo "$plan_time"|cut -d- -f2)
+                fi
+                if echo "$ptime1" | grep -q ":"; then
+                    ptime1_hour=$(echo "$ptime1"|cut -d: -f1)
+                    ptime1_min=$(echo "$ptime1"|cut -d: -f2)
+                    ptime1=$(($ptime1_hour*3600+$ptime1_min*60))
+                elif [ "$ptime1" != "*" ]; then
+                    ptime1=$(($ptime1*3600))
+                fi
+                if echo "$ptime2" | grep -q ":"; then
+                    ptime2_hour=$(echo "$ptime2"|cut -d: -f1)
+                    ptime2_min=$(echo "$ptime2"|cut -d: -f2)
+                    ptime2=$(($ptime2_hour*3600+$ptime2_min*60))
+                elif [ "$ptime2" != "*" -a "$ptime2" != "" ]; then
+                    ptime2=$(($ptime2*3600))
+                fi
             fi
 
             local pday2=""
-            local pday1=$(echo "$plan_day"|cut -d- -f1)
-            if echo "$plan_day"|grep -q "-"; then
-                pday2=$(echo "$plan_day"|cut -d- -f2)
+            local pday1=""
+
+            if [ "$plan_day" = "-" ]; then
+                 timeifdi=2
+            elif [ "$plan_day" != "" -a "$plan_day" != "-" ]; then            
+                 pday1=$(echo "$plan_day"|cut -d- -f1)
+                 if echo "$plan_day"|grep -q "-"; then
+                     pday2=$(echo "$plan_day"|cut -d- -f2)
+                 fi
             fi
 
-            #[ "$ptime1_hour" != "" -a "$ptime1_min" != "" ] && mkcrontab "$plan_day" "$ptime1_hour" "$ptime1_min"
-            #[ "$ptime2_hour" != "" -a "$ptime2_min" != "" ] && mkcrontab "$plan_day" "$ptime2_hour" "$ptime2_min"
+            [ "$ptime1_hour" != "" -a "$ptime1_min" != "" -a "$play_day" != "-" ] && mkcrontab "$plan_day" "$ptime1_hour" "$ptime1_min" "$0"
+            [ "$ptime2_hour" != "" -a "$ptime2_min" != "" -a "$play_day" != "-"  ] && mkcrontab "$plan_day" "$ptime2_hour" "$ptime2_min" "$0"
 
             if [ $timeif -eq 0 ]; then
-                 j=`expr $j + 1`
-                 continue
+                    j=`expr $j + 1`
+                    continue
             fi
-            local timeifdi=""
-            if [ "$pday1" != "*" ]; then
+            if [ "$pday1" != "*" -a "$pday1" != "" ]; then
                 if [ "$pday2" = "" ]; then
                     timeifdi="$day -eq $pday1"
                 else
                     timeifdi="$day -ge $pday1 -a $day -le $pday2"
                 fi
-            else
+            elif [ "$pday1" = "*" ]; then
                 timeifdi=0
             fi
 
-            local timeifti=""
             if [ "$ptime2" = "" -a "$ptime1" != "*" ]; then
                 timeifti="$timeinday -ge $ptime1 -o $timeinday -le $nextmorning"
             elif [ "$ptime1" != "*" ]; then
@@ -205,7 +233,10 @@ now_in_time()
                 timeifti=0
             fi
             local timeifi=1
-            if [ "$timeifdi" != "" -a "$timeifti" != "" ]; then
+            if [ "$timeifdi" = "2" -o "$timeifti" = "2" ]; then
+                timeif=1
+                break
+            elif [ "$timeifdi" != "" -a "$timeifti" != "" ]; then
                 [ $timeifdi ] && [ $timeifti ] && timeifi=0
             elif [ "$timeifdi" != "" ]; then
                 [ $timeifdi ] && timeifi=0
@@ -278,6 +309,10 @@ cat ${configfile} | while read Line; do
             mv $prefix/data/system/lockAppNet.conf.tmp $prefix/data/system/lockAppNet.conf
        fi
        exit
+   elif [ "$hostname" = "NTPSERVER" -a "$blockname" = "Main" ]; then
+       local ntpservername=$(echo "${lockhost}"|cut -d$ -f2)
+       ntpserver=$(nslookup "${ntpservername}" $dns | sed "1,3d" | grep "Address" | grep -v ":\{2,\}" | cut -d: -f2 | sed "s/^ //g" | cut -d" " -f1)
+       continue
    elif [ "${hostname:0:13}" = "APP_WHITELIST"  -a "$blockname" = "Main" ]; then
         [ -f $prefix/data/property/lockAppNet.whitelist ] && whitelist=$(cat $prefix/data/property/lockAppNet.whitelist)
         [ "$whitelist" != "" ] && whitelist="${whitelist},"
@@ -289,6 +324,11 @@ cat ${configfile} | while read Line; do
         continue
    elif [ "$blockname" = "Network" ]; then
    #######################################################
+       if [ $time_synced -eq 1 ]; then
+            rdate -s $ntpserver &
+            time_synced=0
+       fi
+      
        if echo "$hostname" | grep -q ":"; then
            rulename=$(echo "$hostname" | cut -d\: -f1)
            hostname=$(echo "$hostname" | cut -d\: -f2)
@@ -309,7 +349,6 @@ cat ${configfile} | while read Line; do
             echo "Apply Rule: $Line"
        fi
        plans=$(echo "${lockhost}"|cut -d$ -f2)
-       echo "lockhost=$lockhost" 
        if [ "${hostname}" != "*" ]; then
            if ! grep -q "127\.0\.0\.1.*${hostname}" ${hostsconfig}; then
                [ $readonly -eq 0 ] && mount -o remount,rw $prefix/system
@@ -319,8 +358,9 @@ cat ${configfile} | while read Line; do
        fi
        timeif=1
        timeif=$(now_in_time "$plans")
+       
        globalNet=$(getprop lockAppNet.globalNet)
-       if [ $timeif -eq 0 -a $netlock -eq 1 ] ; then
+       if [ $timeif -eq 1 -a $netlock -eq 1 ] ; then
              if [ "${hostname}" != "*" ]; then
                  if grep -q "^#.*${hostname}" ${hostsconfig}; then
                      [ $readonly -eq 0 ] && mount -o remount,rw $prefix/system
@@ -337,6 +377,9 @@ cat ${configfile} | while read Line; do
                  # allow SNTP/NTP
                  iptables -A OUTPUT -p udp -m udp --dport 123 -j ACCEPT
                  iptables -A OUTPUT -p tcp -m tcp --dport 123 -j ACCEPT
+                 # all rdate
+                 iptables -A OUTPUT -p udp -m udp --dport 37 -j ACCEPT
+                 iptables -A OUTPUT -p tcp -m tcp --dport 37 -j ACCEPT
                  # allow ping
                  iptables -A OUTPUT -p icmp --icmp-type 8  -j ACCEPT
                  ApplyWhiteList
@@ -358,6 +401,11 @@ cat ${configfile} | while read Line; do
         fi
     elif  [ "$blockname" = "Application" ]; then
     #################################################
+       if [ $time_synced -eq 1 ]; then
+            rdate -s $ntpserver &
+            time_synced=0
+       fi
+
        appname=${hostname}
        appuid=$(getAppUID $appname)
        if [ $? -eq 1 -o "$appuid" = "" ]; then
@@ -368,15 +416,15 @@ cat ${configfile} | while read Line; do
        uidcount=$((uidcount + 1))
        plans=$(echo "${lockhost}"|cut -d$ -f2)
        timeif=1
-       until [ $k -gt $uidcount ]; do
+       until [ $k -ge $uidcount ]; do
             uiditem=$(echo $appuid| cut -d, -f$uidcount)
             timeif=$(now_in_time "$plans")
-            if [ "$timeif" = "0" ]; then
-                 iptables -D OUTPUT -m owner --uid-owner  $uiditem -j ACCEPT
+            if [ "$timeif" = "1" ]; then
+                 iptables -D OUTPUT -m owner --uid-owner  $uiditem -j ACCEPT > /dev/null 2>/dev/null
                  iptables -A OUTPUT -m owner --uid-owner  $uiditem -j REJECT
                  echo "   --Disabled $appname"
             else
-                 iptables -D OUTPUT -m owner --uid-owner  $uiditem -j REJECT
+                 iptables -D OUTPUT -m owner --uid-owner  $uiditem -j REJECT > /dev/null 2>/dev/null
                  iptables -A OUTPUT -m owner --uid-owner  $uiditem -j ACCEPT
                  echo "   --Enabled $appname"
             fi
