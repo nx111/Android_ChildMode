@@ -137,7 +137,7 @@ mkcrontab()
         [ "$vday" = "*" -a "$vhour" = "*" -a "$vmin" = "*" ] && return
         local newitem="$vmin $vhour      *      *  $vday   $0"
         local items=$(echo "$newitem" | sed "s/\*/\\\*/g")
-	if !grep -q "$items" $prefix/data/crontabs/lockAppNet/root > /dev/null 2 >/dev/null; then
+	if ! grep  -q "$items" $prefix/data/crontabs/lockAppNet/root; then
              echo "$newitem" >> $prefix/data/crontabs/lockAppNet/root
         fi
 }
@@ -161,6 +161,7 @@ now_in_time()
             [ "$plani" = "" ] && break;
             local plan_time=$(echo "$plani"|cut -d' ' -f1)
             local plan_day=$(echo "$plani"|cut -d' ' -f2)
+            local plan_opt=$(echo "$plani"|cut -d' ' -f3)
             local ptime1=""          
             local ptime2=""
 	    local ptime1_hour=""
@@ -169,9 +170,7 @@ now_in_time()
 	    local ptime2_min=""
             local timeifdi=""
             local timeifti=""
-            if [ "$plan_time" = "-" ]; then
-                timeifdi=2
-            elif [ "$plan_time" != "" ]; then
+            if [ "$plan_time" != "" ]; then
                 ptime1=$(echo "$plan_time"|cut -d- -f1)
                 if echo "$plan_time"|grep -q "-"; then
                     ptime2=$(echo "$plan_time"|cut -d- -f2)
@@ -195,9 +194,7 @@ now_in_time()
             local pday2=""
             local pday1=""
 
-            if [ "$plan_day" = "-" ]; then
-                 timeifdi=2
-            elif [ "$plan_day" != "" -a "$plan_day" != "-" ]; then            
+            if [ "$plan_day" != "" ]; then            
                  pday1=$(echo "$plan_day"|cut -d- -f1)
                  if echo "$plan_day"|grep -q "-"; then
                      pday2=$(echo "$plan_day"|cut -d- -f2)
@@ -207,7 +204,7 @@ now_in_time()
             [ "$ptime1_hour" != "" -a "$ptime1_min" != "" -a "$play_day" != "-" ] && mkcrontab "$plan_day" "$ptime1_hour" "$ptime1_min" "$0"
             [ "$ptime2_hour" != "" -a "$ptime2_min" != "" -a "$play_day" != "-"  ] && mkcrontab "$plan_day" "$ptime2_hour" "$ptime2_min" "$0"
 
-            if [ $timeif -eq 0 ]; then
+            if [ $timeif -eq 0 -o $timeif -eq 2 ]; then
                     j=`expr $j + 1`
                     continue
             fi
@@ -233,10 +230,7 @@ now_in_time()
                 timeifti=0
             fi
             local timeifi=1
-            if [ "$timeifdi" = "2" -o "$timeifti" = "2" ]; then
-                timeif=1
-                break
-            elif [ "$timeifdi" != "" -a "$timeifti" != "" ]; then
+            if [ "$timeifdi" != "" -a "$timeifti" != "" ]; then
                 [ $timeifdi ] && [ $timeifti ] && timeifi=0
             elif [ "$timeifdi" != "" ]; then
                 [ $timeifdi ] && timeifi=0
@@ -248,10 +242,15 @@ now_in_time()
             fi
 
             if [ $timeifi -eq 0 ]; then
-                timeif=0
+                if [ "$plan_opt" = "-" ]; then
+                   timeif=2
+                else
+                   timeif=0
+                fi
             fi
             j=`expr $j + 1`
     done
+    [ "$timeif" -eq 2 ] && timeif=1
     echo $timeif
 }
 ###############################################################
@@ -418,7 +417,8 @@ cat ${configfile} | while read Line; do
        timeif=1
        until [ $k -ge $uidcount ]; do
             uiditem=$(echo $appuid| cut -d, -f$uidcount)
-            timeif=$(now_in_time "$plans")
+            itimeif=$(now_in_time "$plans")
+            
             if [ "$timeif" = "1" ]; then
                  iptables -D OUTPUT -m owner --uid-owner  $uiditem -j ACCEPT > /dev/null 2>/dev/null
                  iptables -A OUTPUT -m owner --uid-owner  $uiditem -j REJECT
