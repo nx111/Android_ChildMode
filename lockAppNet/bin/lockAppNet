@@ -201,8 +201,9 @@ now_in_time()
                  fi
             fi
 
-            [ "$ptime1_hour" != "" -a "$ptime1_min" != "" -a "$play_day" != "-" ] && mkcrontab "$plan_day" "$ptime1_hour" "$ptime1_min" "$0"
-            [ "$ptime2_hour" != "" -a "$ptime2_min" != "" -a "$play_day" != "-"  ] && mkcrontab "$plan_day" "$ptime2_hour" "$ptime2_min" "$0"
+            [ "$ptime1_hour" != "" -a "$ptime1_min" != "" ] && mkcrontab "$plan_day" "$ptime1_hour" "$ptime1_min" "$0"
+            [ "$ptime2_hour" != "" -a "$ptime2_min" != "" ] && mkcrontab "$plan_day" "$ptime2_hour" "$ptime2_min" "$0"
+            [ "$ptime2_hour" != "" -a "$ptime2_min" != ""  -a "$plan_opt" = "-" ] && mkcrontab "$plan_day" "$ptime1_hour-$ptime2_hour" "*/5" "$0"
 
             if [ $timeif -eq 0 -o $timeif -eq 2 ]; then
                     j=`expr $j + 1`
@@ -257,6 +258,8 @@ now_in_time()
 setprop lockAppNet.conf.block ""
 setprop lockAppNet.whitelist.imported ""
 
+ntpServerIP=`getprop android.lockAppNet.ntpServerIP`
+
 cat ${configfile} | while read Line; do
    Line=$(echo "$Line" | sed "s/#.*$//g")
    if echo "$Line" | grep -q "^[[:space:]]*#"; then
@@ -308,9 +311,11 @@ cat ${configfile} | while read Line; do
             mv $prefix/data/system/lockAppNet.conf.tmp $prefix/data/system/lockAppNet.conf
        fi
        exit
-   elif [ "$hostname" = "NTPSERVER" -a "$blockname" = "Main" ]; then
+   elif [ "$hostname" = "NTPSERVER" -a "$blockname" = "Main" -a "$ntpServerIP" = "" ]; then
        local ntpservername=$(echo "${lockhost}"|cut -d$ -f2)
        ntpserver=$(nslookup "${ntpservername}" $dns | sed "1,3d" | grep "Address" | grep -v ":\{2,\}" | cut -d: -f2 | sed "s/^ //g" | cut -d" " -f1)
+       setprop android.lockAppNet.ntpServerIP "$ntpserver"
+       ntpServerIP=$ntpserver
        continue
    elif [ "${hostname:0:13}" = "APP_WHITELIST"  -a "$blockname" = "Main" ]; then
         [ -f $prefix/data/property/lockAppNet.whitelist ] && whitelist=$(cat $prefix/data/property/lockAppNet.whitelist)
@@ -324,7 +329,12 @@ cat ${configfile} | while read Line; do
    elif [ "$blockname" = "Network" ]; then
    #######################################################
        if [ $time_synced -eq 1 ]; then
-            rdate -s $ntpserver &
+            if [ "$ntpServerIP" = "" ]; then
+	       ntpserver=$(nslookup "${ntpserver}" $dns | sed "1,3d" | grep "Address" | grep -v ":\{2,\}" | cut -d: -f2 | sed "s/^ //g" | cut -d" " -f1)
+       	       setprop android.lockAppNet.ntpServerIP "$ntpserver"
+       	       ntpServerIP=$ntpserver
+           fi
+            rdate -s $ntpServerIP &
             time_synced=0
        fi
       
@@ -401,7 +411,12 @@ cat ${configfile} | while read Line; do
     elif  [ "$blockname" = "Application" ]; then
     #################################################
        if [ $time_synced -eq 1 ]; then
-            rdate -s $ntpserver &
+            if [ "$ntpServerIP" = "" ]; then
+	       ntpserver=$(nslookup "${ntpserver}" $dns | sed "1,3d" | grep "Address" | grep -v ":\{2,\}" | cut -d: -f2 | sed "s/^ //g" | cut -d" " -f1)
+       	       setprop android.lockAppNet.ntpServerIP "$ntpserver"
+       	       ntpServerIP=$ntpserver
+           fi
+            rdate -s $ntpServerIP &
             time_synced=0
        fi
 
