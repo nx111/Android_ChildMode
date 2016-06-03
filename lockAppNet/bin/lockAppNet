@@ -353,8 +353,9 @@ cat ${configfile} | while read Line; do
        	          setprop android.lockAppNet.ntpServerIP "$ntpserver"
        	          ntpServerIP=$ntpserver
                fi
-           fi
-            rdate -s $ntpServerIP &
+            fi
+            local r=$(ps | grep -q rdate;echo $?)
+            [ $r -eq 1 ] && rdate -s $ntpServerIP &
             time_synced=0
        fi
       
@@ -443,8 +444,9 @@ cat ${configfile} | while read Line; do
        	          setprop android.lockAppNet.ntpServerIP "$ntpserver"
        	          ntpServerIP=$ntpserver
                fi
-           fi
-            rdate -s $ntpServerIP &
+            fi
+            local r=$(ps | grep -q rdate;echo $?)
+            [ $r -eq 1 ] && rdate -s $ntpServerIP &
             time_synced=0
        fi
 
