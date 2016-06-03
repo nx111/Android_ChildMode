@@ -2,6 +2,7 @@
 
 [ -f /system/etc/lockAppNet.conf ] || exit 0
 setprop android.network.lockAppNet 1
+setprop android.lockAppNet.ntpServerIP ""
 /system/bin/lockAppNet
 
 if [ -f /data/crontabs/lockAppNet/root ]; then 
