@@ -211,7 +211,7 @@ now_in_time()
 
             [ "$ptime1_hour" != "" -a "$ptime1_min" != "" ] && mkcrontab "$plan_day" "$ptime1_hour" "$ptime1_min" "$0"
             [ "$ptime2_hour" != "" -a "$ptime2_min" != "" ] && mkcrontab "$plan_day" "$ptime2_hour" "$ptime2_min" "$0"
-            [ "$ptime2_hour" != "" -a "$ptime2_min" != ""  -a "$plan_opt" = "-" ] && mkcrontab "$plan_day" "$ptime1_hour-$ptime2_hour" "*/5" "$0"
+            [ "$ptime2_hour" != "" -a "$ptime2_min" != ""  -a "$plan_opt" != "-" ] && mkcrontab "$plan_day" "$ptime1_hour-$ptime2_hour" "*/10" "$0"
 
             if [ $timeif -eq 0 -o $timeif -eq 2 ]; then
                     j=`expr $j + 1`
@@ -469,7 +469,7 @@ cat ${configfile} | while read Line; do
             uiditem=$(echo $appuid| cut -d, -f$uidcount)
             timeif=$(now_in_time "$plans")
 
-            if [ "$timeif" = "1" ]; then
+            if [ "$timeif" = "1" -a $netlock -eq 1 ]; then
                  iptables -D OUTPUT -m owner --uid-owner  $uiditem -j ACCEPT > /dev/null 2>/dev/null
                  iptables -A OUTPUT -m owner --uid-owner  $uiditem -j REJECT
                  echo "   --Disabled $appname"
