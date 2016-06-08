@@ -134,20 +134,32 @@ mkcrontab()
   	if [ $# -lt 4 ]; then
 		return 
   	fi
-  	local vday="$1"
+        local vday="$1"
   	local vhour="$2"
   	local vmin="$3"
         local vcommand="$4"
+        local crontabfile=$prefix/data/crontabs/lockAppNet/root
         [ "$vcommand" = "" ] && vcommand="$0"
         [ "$vday" = "" ] && vday="*"
         [ "$vhour" = "" ] && vhour="*"
         [ "$vmin" = "" ] && vmin="*"
         [ "$vday" = "*" -a "$vhour" = "*" -a "$vmin" = "*" ] && return
-        local newitem="$vmin\s+$vhour\s+*\s+*\s+\S+\s+$0"
-        local items=$(echo "$newitem" | sed "s/\*/\\\*/g")
-	if ! grep  -q "$items" $prefix/data/crontabs/lockAppNet/root; then
-             echo "$newitem" >> $prefix/data/crontabs/lockAppNet/root
+        local newitem="$vmini\s\{1,\}$vhour\s\{1,\}*\s\{1\}*\s\{1,\}\S\{1,\}\s\{1,\}$0"
+        local items=$(echo "$newitem" | sed -e "s/\*/\\\*/g" -e "s/\//\\//g")
+        if ! grep  -q "$items" $crontabfile; then
+             echo "$vmin	$vhour	*	*	$vday	$0"  >> $crontabfile
+        elif [ "$vday" = "*" ]; then
+             newitem="\($vmin[[:space:]]+$vhour[[:space:]]+*[[:space:]]+*[[:space:]]+\)[^*]+\([[:space:]]+$0\)"
+             items=$(echo "$newitem" | sed -e "s/\*/\\\*/g" -e "s/\//\\//g")
+             echo sed -e "s/$items/\1\*\2/g" -i $crontabfile >/dev/null 2>/dev/null
+        elif [ "$vday" != "*" ]; then
+             newitem="$vmini\s\{1,\}$vhour\s\{1,\}*\s\{1\}*\s\{1,\}*\s\{1,\}$0"
+             items=$(echo "$newitem" | sed -e "s/\*/\\\*/g" -e "s/\//\\//g")
+             if ! grep -q "$items" $crontabfile; then
+                   echo "$vmin        $vhour  *       *       $vday   $0"  >> $crontabfile
+             fi
         fi
+
 }
 now_in_time()
 {
