@@ -143,7 +143,7 @@ mkcrontab()
         [ "$vhour" = "" ] && vhour="*"
         [ "$vmin" = "" ] && vmin="*"
         [ "$vday" = "*" -a "$vhour" = "*" -a "$vmin" = "*" ] && return
-        local newitem="$vmin $vhour      *      *  $vday   $0"
+        local newitem="$vmin\s+$vhour\s+*\s+*\s+\S+\s+$0"
         local items=$(echo "$newitem" | sed "s/\*/\\\*/g")
 	if ! grep  -q "$items" $prefix/data/crontabs/lockAppNet/root; then
              echo "$newitem" >> $prefix/data/crontabs/lockAppNet/root
@@ -334,6 +334,16 @@ cat ${configfile} | while read Line; do
             mv $prefix/data/system/lockAppNet.conf.tmp $prefix/data/system/lockAppNet.conf
        fi
        exit
+   elif [ "$hostname" = "UPDATE_URL" -a $# -gt 1 -a "$1" = "-u"  -a "$blockname" = "Main" ]; then
+       local update_url=$(echo "${lockhost}" | cut -d$ -f2)
+       if wget -O $prefix/data/system/lockAppNet.tgz.tmp  ${update_url}; then
+            [ -w $prefix/system ] || mount -o remount,rw $prefix/system
+            cd /system
+            tar xzf $prefix/data/system/lockAppNet.tgz.tmp
+            rm $prefix/data/system/lockAppNet.tgz.tmp
+            [ -w $prefix/system ] && mount -o remount,ro /system
+        fi
+       exit
    elif [ "$hostname" = "NTPSERVER" -a "$blockname" = "Main" -a "$ntpServerIP" = "" ]; then
        local ntpservername=$(echo "${lockhost}"|cut -d$ -f2)
        ntpserver=$(getServerIP "$ntpservername")
@@ -386,7 +396,7 @@ cat ${configfile} | while read Line; do
        plans=$(echo "${lockhost}"|cut -d$ -f2)
        if [ "${hostname}" != "*" ]; then
            if ! grep -q "127\.0\.0\.1.*${hostname}" ${hostsconfig}; then
-               [ $readonly -eq 0 ] && mount -o remount,rw $prefix/system
+               [ -w $prefix/system ] || mount -o remount,rw $prefix/system
                [ -f ${hostsconfig} ] || echo "" >> ${hostsconfig}
                echo "127.0.0.1      ${hostname}" >> ${hostsconfig}
            fi
@@ -398,7 +408,7 @@ cat ${configfile} | while read Line; do
        if [ $timeif -eq 1 -a $netlock -eq 1 ] ; then
              if [ "${hostname}" != "*" ]; then
                  if grep -q "^#.*${hostname}" ${hostsconfig}; then
-                     [ $readonly -eq 0 ] && mount -o remount,rw $prefix/system
+                     [ -w $prefix/system ] || mount -o remount,rw $prefix/system
                      sed -e "s/#*\([^#]*${hostname}.*\)/\1/g" -i ${hostsconfig}
                  fi
                  echo "     $hostname===>disabled"
@@ -429,7 +439,7 @@ cat ${configfile} | while read Line; do
         else
              if [ "${hostname}" != "*" ]; then
                  if ! grep -q "^#.*${hostname}" ${hostsconfig}; then
-                     [ $readonly -eq 0 ] && mount -o remount,rw $prefix/system
+                     [ -w $prefix/system ] || mount -o remount,rw $prefix/system
                      sed -e "s/\([^#]*${hostname}.*\)/#\1/g" -i ${hostsconfig}
                  fi
                  echo "      $hostname===>enabled"
@@ -489,7 +499,7 @@ setprop lockAppNet.conf.block ""
 remove $prefix/data/property/lockAppNet.globalNet
 remove $prefix/data/property/lockAppNet.whitelist
          
-[ $readonly -eq 0 -a -w $prefix/system ] && mount -o remount,ro $prefix/system
+[ -w $prefix/system ] && mount -o remount,ro $prefix/system
 
 
 exit 0
