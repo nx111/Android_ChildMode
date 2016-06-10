@@ -278,16 +278,46 @@ now_in_time()
 getServerIP()
 {
     [ $# -lt 1 ] && return
-    if echo "$1" | grep -q "^[[:digit:]]\{,3\}\.[[:digit:]]\{,3\}\.[[:digit:]]\{,3\}\.[[:digit:]]\{,3\}"; then
-	echo $1
-	return 0
+
+    local j=1
+    local server_count=$(( $(echo "$1" | grep  -o ','| wc -l) + 1 ))
+    local serverIP=""
+    
+    until [ $j -lt 0 -o $j -gt ${server_count} ]; do   
+        local iServer=$(echo "$1" | cut -d, -f$j )
+        local ns=$(nslookup "$iServer" "$dns" 2>/dev/null | sed "1,3d" | grep "Address" | grep -v ":\{2,\}" | cut -d: -f2 | sed "s/^ //g" | cut -d' ' -f1 | sed ':a;N;s/\n/,/;ta' )
+        if echo $ns | grep -qv 'nslookup'; then
+           serverIP="${serverIP}\n${ns}"
+        fi
+        j=`expr $j + 1`
+    done
+    if [ "$serverIP" != "" ]; then
+        echo -e $serverIP |  sed ':a;N;s/\n/,/;ta' | sed "s/^,//"
+        return 0
+    else
+        return 1
     fi
-    local ns=$(nslookup "$1" "$dns" 2>/dev/null | sed "1,3d" | grep "Address" | grep -v ":\{2,\}" | cut -d: -f2 | sed "s/^ //g" | cut -d" " -f1)
-    if echo $ns | grep -v 'nslookup'; then
-       echo $ns
-       return 0
+}
+
+SyncTime()
+{
+    if [ $time_synced -eq 1 ]; then
+        if [ "$ntpServerIP" = "" ]; then
+             ntpserver=$(getServerIP "$ntpservername")
+             if [ "$ntpserver" != "" ]; then
+                  setprop android.lockAppNet.ntpServerIP "$ntpserver"
+       	          ntpServerIP=$ntpserver
+             fi
+        fi
+        local r=$(ps | grep -q ntpd;echo $?)
+        [ $r -eq 0 ] && killall ntpd
+        if [ "$ntpServerIP" != "" ]; then
+             ntpd -qNn -p `echo $ntpServerIP | sed "s/,/ -p /g"`
+             [ $? -eq 0 ] && hwclock -w
+        fi
+        return 1
     fi
-    return 1
+
 }
 ###############################################################
 setprop lockAppNet.conf.block ""
@@ -373,18 +403,7 @@ cat ${configfile} | while read Line; do
         continue
    elif [ "$blockname" = "Network" ]; then
    #######################################################
-       if [ $time_synced -eq 1 ]; then
-            if [ "$ntpServerIP" = "" ]; then
-	       ntpserver=$(getServerIP "$ntpservername")
-               if [ "$ntpserver" != "" ]; then
-       	          setprop android.lockAppNet.ntpServerIP "$ntpserver"
-       	          ntpServerIP=$ntpserver
-               fi
-            fi
-            local r=$(ps | grep -q rdate;echo $?)
-            [ $r -eq 1 -a "$ntpServerIP" != "" ] && rdate -s $ntpServerIP &
-            time_synced=0
-       fi
+       [ $time_synced -eq 1 ] && SyncTime &
       
        if echo "$hostname" | grep -q ":"; then
            rulename=$(echo "$hostname" | cut -d\: -f1)
@@ -464,18 +483,7 @@ cat ${configfile} | while read Line; do
         fi
     elif  [ "$blockname" = "Application" ]; then
     #################################################
-       if [ $time_synced -eq 1 ]; then
-            if [ "$ntpServerIP" = "" ]; then
-	       ntpserver=$(getServerIP "$ntpservername")
-               if [ "$ntpserver" != "" ]; then
-       	          setprop android.lockAppNet.ntpServerIP "$ntpserver"
-       	          ntpServerIP=$ntpserver
-               fi
-            fi
-            local r=$(ps | grep -q rdate;echo $?)
-            [ $r -eq 1 -a "$ntpServerIP" != "" ] && rdate -s $ntpServerIP &
-            time_synced=0
-       fi
+       [ $time_synced -eq 1 ] && SyncTime &
 
        appname=${hostname}
        appuid=$(getAppUID $appname)

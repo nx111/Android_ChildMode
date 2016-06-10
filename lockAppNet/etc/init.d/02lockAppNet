@@ -1,4 +1,16 @@
 #!/system/bin/sh
+remounted=1
+if [ ! -f /system/etc/passwd ]; then
+   if [ ! -w /system ]; then
+       mount -o remount,rw /system
+       remounted=0
+   fi
+   touch /system/etc/passwd
+fi
+if ! grep -q "^root:" /system/etc/passwd; then
+   echo "root:x:0:0::/system/bin:/system/bin/sh" >> /system/etc/passwd
+fi
+[ $remounted -eq 0 ] && mount -o remount,ro /system
 
 [ -f /system/etc/lockAppNet.conf ] || exit 0
 setprop android.network.lockAppNet 1
