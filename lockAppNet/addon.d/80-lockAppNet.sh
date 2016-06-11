@@ -5,11 +5,24 @@
 
 list_files() {
 cat <<EOF
-etc/hosts
 bin/lockAppNet
 bin/net_onoff.sh
-etc/init.d/02lockAppNet
+addon.d/80-lockAppNet.sh
+etc/localtime
 etc/lockAppNet.conf
+etc/crontabs
+etc/crontabs/lockAppNet
+etc/crontabs/lockAppNet/root
+etc/zoneinfo
+etc/zoneinfo/Asia
+etc/zoneinfo/Asia/Hong_Kong
+etc/zoneinfo/Asia/Shanghai
+etc/zoneinfo/Asia/Chongqing
+etc/zoneinfo/Asia/Chungking
+etc/zoneinfo/PRC
+etc/zoneinfo/Hongkong
+etc/init.d
+etc/init.d/02lockAppNet
 EOF
 }
 

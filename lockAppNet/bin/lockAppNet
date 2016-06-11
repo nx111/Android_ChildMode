@@ -6,7 +6,14 @@ configfile2=$prefix/data/system/lockAppNet.conf
 
 [ -f $configfile2 ] && configfile=$configfile2
 [ -f $configfile -o -f $configfile2 ] || exit 0
-
+local lockAppNetPID=$(getprop android.lockAppNet.pid)
+if [ "$lockAppNetPID" != "" ]; then
+    if ps | grep -q "[[:print:]]\{1,\}[[:space:]]\{1,\}${lockAppNetPID}[[:space:]]\{1,\}"; then
+        echo "Warnning: $0 already is running,exit now!"
+        exit 1
+    fi
+fi
+setprop android.lockAppNet.pid $$
 ##############################################################
 day=`date +%u`
 today=`date +%m%d`
@@ -99,6 +106,7 @@ getAppName()
 
 ApplyWhiteList()
 {
+   [ -f $prefix/data/property/lockAppNet.whitelist ] || return 1
    whitelist=$(cat $prefix/data/property/lockAppNet.whitelist)
    [ "$whitelist" != "" ] && echo "AppWhiteList:        $whitelist"
    itemcount=$(echo $whitelist | grep -o "," | wc -l)
@@ -537,6 +545,7 @@ cat ${configfile} | while read Line; do
 done
 setprop lockAppNet.globalNet ""
 setprop lockAppNet.conf.block ""
+setprop android.lockAppNet.pid ""
 remove $prefix/data/property/lockAppNet.globalNet
 remove $prefix/data/property/lockAppNet.whitelist
          
