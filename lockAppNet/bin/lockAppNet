@@ -1,5 +1,5 @@
 #!/system/bin/sh
-prefix=
+prefix=""
 hostsconfig=$prefix/system/etc/hosts
 configfile=$prefix/system/etc/lockAppNet.conf
 configfile2=$prefix/data/system/lockAppNet.conf
@@ -44,7 +44,9 @@ if [ ! -d $prefix/data/crontabs/lockAppNet ]; then
 	mkdir $prefix/data/crontabs
 	mkdir $prefix/data/crontabs/lockAppNet
 fi
-echo "" > $prefix/data/crontabs/lockAppNet/root
+echo "SHELL=/system/bin/sh" > $prefix/data/crontabs/lockAppNet/root
+echo "PATH=/sbin:/vendor/bin:/system/sbin:/system/bin:/system/xbin" >> $prefix/data/crontabs/lockAppNet/root
+echo "" >> $prefix/data/crontabs/lockAppNet/root
 #############################################################
 ##check busybox grep sed cut 
 errorflag=0
@@ -170,14 +172,14 @@ now_in_time()
     local plans="$1"
     local timeif=1
     local j=1
-    local i_plan_count=$(( $(echo "$plans" | grep  -o ','| wc -l) + 1 ))
+    local i_plan_count=$(( $(echo "$plans" | grep  -o ';'| wc -l) + 1 ))
     
     until [ $j -lt 0 -o $j -gt ${i_plan_count} ]; do
     #        if [ $j -gt 1 ]; then
     #           echo "$plans" | grep -q ","
     #           [ $? -ne 0 ] && break
     #        fi
-            local plani=$(echo "$plans"|cut -d, -f$j)
+            local plani=$(echo "$plans"|cut -d';' -f$j)
             [ "$plani" = "" ] && break;
             local plan_time=$(echo "$plani"|sed -e "s/ \{2,\}/ /g"|cut -d' ' -f1)
             local plan_day=$(echo "$plani"|sed -e "s/ \{2,\}/ /g"|cut -d' ' -f2)
@@ -214,10 +216,15 @@ now_in_time()
             local pday2=""
             local pday1=""
 
-            if [ "$plan_day" != "" ]; then            
-                 pday1=$(echo "$plan_day"|cut -d- -f1)
-                 if echo "$plan_day"|grep -q "-"; then
-                     pday2=$(echo "$plan_day"|cut -d- -f2)
+            if [ "$plan_day" != "" ]; then
+                 if echo "$plan_day" | grep -q "," ; then
+                     pday1=$(echo "$plan_day" | cut -d, -f1)
+                     pday2=$(echo "$plan_day" | cut -d, -f2)
+                 else           
+                     pday1=$(echo "$plan_day"|cut -d- -f1)
+                     if echo "$plan_day"|grep -q "-"; then
+                         pday2=$(echo "$plan_day"|cut -d- -f2)
+                     fi
                  fi
             fi
 
@@ -230,10 +237,24 @@ now_in_time()
                     continue
             fi
             if [ "$pday1" != "*" -a "$pday1" != "" ]; then
-                if [ "$pday2" = "" ]; then
-                    timeifdi="$day -eq $pday1"
+                if echo "$plan_day" | grep -q ','; then
+                    local iday=1
+                    local day_count=$(( $(echo "$plan_day" | grep  -o ','| wc -l) + 1 ))
+                    timeifdi=""
+                    until [ $iday -lt 0 -o $iday -gt ${day_count} ]; do
+                         item_day=$(echo "$plan_day"|cut -d, -f $iday)
+                         if [ "$item_day" != "" ]; then
+                             [ "$timeifdi" != "" ] && timeifdi="$timeifdi -a "
+                             timeifdi="$timeifdi $day -eq $item_day"
+                         fi
+                         iday=$(expr $iday + 1)
+                    done
                 else
-                    timeifdi="$day -ge $pday1 -a $day -le $pday2"
+                    if [ "$pday2" = ""  ]; then
+                        timeifdi="$day -eq $pday1"
+                    else
+                        timeifdi="$day -ge $pday1 -a $day -le $pday2"
+                    fi
                 fi
             elif [ "$pday1" = "*" ]; then
                 timeifdi=0
@@ -313,7 +334,7 @@ SyncTime()
         [ $r -eq 0 ] && killall ntpd
         if [ "$ntpServerIP" != "" ]; then
              ntpd -qNn -p `echo $ntpServerIP | sed "s/,/ -p /g"`
-             [ $? -eq 0 ] && hwclock -w
+             [ $? -eq 0 ] && time_synced=0 && hwclock -w
         fi
         return 1
     fi
@@ -403,7 +424,7 @@ cat ${configfile} | while read Line; do
         continue
    elif [ "$blockname" = "Network" ]; then
    #######################################################
-       [ $time_synced -eq 1 ] && SyncTime &
+       [ $time_synced -eq 1 ] && SyncTime
       
        if echo "$hostname" | grep -q ":"; then
            rulename=$(echo "$hostname" | cut -d\: -f1)
@@ -483,7 +504,7 @@ cat ${configfile} | while read Line; do
         fi
     elif  [ "$blockname" = "Application" ]; then
     #################################################
-       [ $time_synced -eq 1 ] && SyncTime &
+       [ $time_synced -eq 1 ] && SyncTime
 
        appname=${hostname}
        appuid=$(getAppUID $appname)
