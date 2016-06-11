@@ -6,14 +6,14 @@ configfile2=$prefix/data/system/lockAppNet.conf
 
 [ -f $configfile2 ] && configfile=$configfile2
 [ -f $configfile -o -f $configfile2 ] || exit 0
-local lockAppNetPID=$(getprop android.lockAppNet.pid)
+local lockAppNetPID=$(GetProp android.lockAppNet.pid)
 if [ "$lockAppNetPID" != "" ]; then
     if ps | grep -q "[[:print:]]\{1,\}[[:space:]]\{1,\}${lockAppNetPID}[[:space:]]\{1,\}"; then
         echo "Warnning: $0 already is running,exit now!"
         exit 1
     fi
 fi
-setprop android.lockAppNet.pid $$
+SetProp android.lockAppNet.pid $$
 ##############################################################
 day=`date +%u`
 today=`date +%m%d`
@@ -30,18 +30,18 @@ dns="114.114.114.114"
 time_synced=1
 
 #check network lock is opened,if opened,do not disable network
-netlock=`getprop android.network.lockAppNet`
+netlock=`GetProp android.network.lockAppNet`
 if [  "$netlock" = "" ]; then
       netlock=1
-      setprop android.network.lockAppNet 1
+      SetProp android.network.lockAppNet 1
 elif [ "$netlock" = "0" ]; then
-      local offtime=`getprop android.lockAppNet.offtime`
+      local offtime=`GetProp android.lockAppNet.offtime`
       if [ "$offtime" != "" ]; then
           local nowtime=`date +%s`
           local timediff=$(($nowtime - $offtime))
           if [ $timediff -ge 3600 -o $timediff -lt 0 ]; then
-               setprop android.lockAppNet.offtime ""
-               setprop android.network.lockAppNet 1
+               SetProp android.lockAppNet.offtime ""
+               SetProp android.network.lockAppNet 1
                netlock=1
           fi
       fi
@@ -74,6 +74,27 @@ if ! which cut >/dev/null; then
    errorflag=1
 fi
 
+SetProp()
+{
+    [ $# -lt 1  && return
+    if [ "$2" = "" -o $# -eq 1 ]; then
+          remove $prefix/data/property/$1
+          return 0
+    else
+         echo -n "$2" > $prefix/data/property/$1
+    fi
+    return 0
+}
+
+GetProp()
+{
+    [ $# -lt 1  && return
+    if [ "$1" != "" -a -f $prefix/data/property/$1 ]; then
+          cat $prefix/data/property/$1
+          return 0
+    fi
+    return 1
+}
 
 remove()
 {
@@ -334,7 +355,7 @@ SyncTime()
         if [ "$ntpServerIP" = "" ]; then
              ntpserver=$(getServerIP "$ntpservername")
              if [ "$ntpserver" != "" ]; then
-                  setprop android.lockAppNet.ntpServerIP "$ntpserver"
+                  SetProp android.lockAppNet.ntpServerIP "$ntpserver"
        	          ntpServerIP=$ntpserver
              fi
         fi
@@ -349,10 +370,10 @@ SyncTime()
 
 }
 ###############################################################
-setprop lockAppNet.conf.block ""
-setprop lockAppNet.whitelist.imported ""
+SetProp lockAppNet.conf.block ""
+SetProp lockAppNet.whitelist.imported ""
 
-ntpServerIP=`getprop android.lockAppNet.ntpServerIP`
+ntpServerIP=`GetProp android.lockAppNet.ntpServerIP`
 
 cat ${configfile} | while read Line; do
    Line=$(echo "$Line" | sed "s/#.*$//g")
@@ -363,10 +384,9 @@ cat ${configfile} | while read Line; do
    fi
    if echo "$Line" |  grep -q "[[:space:]]*\[\{1,\}.*\]\{1,\}[[:space:]]*$"; then
         blockname=$(echo "$Line"|sed "s/[[:space:]]*\[\{1,\}[[:space:]]*\(.*\)[[:space:]]*\]\{1,\}[[:space:]]*$/\1/")
-        setprop lockAppNet.conf.block "$blockname"
+        SetProp lockAppNet.conf.block "$blockname"
         continue;
    fi
-   blockname=$(getprop lockAppNet.conf.block)
    lockhost=$(echo "$Line"|sed -e "s/\([[:graph:]]*\)[[:space:]]*\(.*\)/\1\$\2"/)
    [ "$lockhost" = "" ] && break
    if ! echo "${lockhost}" | grep -q "\$" ; then 
@@ -418,16 +438,16 @@ cat ${configfile} | while read Line; do
    elif [ "$hostname" = "NTPSERVER" -a "$blockname" = "Main" -a "$ntpServerIP" = "" ]; then
        local ntpservername=$(echo "${lockhost}"|cut -d$ -f2)
        ntpserver=$(getServerIP "$ntpservername")
-       setprop android.lockAppNet.ntpServerIP "$ntpserver"
+       SetProp android.lockAppNet.ntpServerIP "$ntpserver"
        ntpServerIP=$ntpserver
        continue
    elif [ "${hostname:0:13}" = "APP_WHITELIST"  -a "$blockname" = "Main" ]; then
         [ -f $prefix/data/property/lockAppNet.whitelist ] && whitelist=$(cat $prefix/data/property/lockAppNet.whitelist)
         [ "$whitelist" != "" ] && whitelist="${whitelist},"
-	[ _$(getprop lockAppNet.whitelist.imported) = _1 ] && remove $prefix/data/property/lockAppNet.whitelist
+	[ _$(GetProp lockAppNet.whitelist.imported) = _1 ] && remove $prefix/data/property/lockAppNet.whitelist
         [ -f $prefix/data/property/lockAppNet.whitelist ] || touch $prefix/data/property/lockAppNet.whitelist
         echo "$whitelist"$(echo "${lockhost}"|cut -d$ -f2) >> $prefix/data/property/lockAppNet.whitelist
-	setprop lockAppNet.whitelist.imported 1
+	SetProp lockAppNet.whitelist.imported 1
         #echo "Apply: $Line"
         continue
    elif [ "$blockname" = "Network" ]; then
@@ -464,7 +484,7 @@ cat ${configfile} | while read Line; do
        timeif=1
        timeif=$(now_in_time "$plans")
 
-       globalNet=$(getprop lockAppNet.globalNet)
+       globalNet=$(GetProp lockAppNet.globalNet)
        if [ $timeif -eq 1 -a $netlock -eq 1 ] ; then
              if [ "${hostname}" != "*" ]; then
                  if grep -q "^#.*${hostname}" ${hostsconfig}; then
@@ -473,7 +493,7 @@ cat ${configfile} | while read Line; do
                  fi
                  echo "     $hostname===>disabled"
              elif [ "$globalNet" != "1" -a "$globalNet" != "2" ]; then
-                 setprop lockAppNet.globalNet 1
+                 SetProp lockAppNet.globalNet 1
                  iptables -F
                  iptables -P OUTPUT DROP
                  iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
@@ -504,7 +524,7 @@ cat ${configfile} | while read Line; do
                  fi
                  echo "      $hostname===>enabled"
              elif [ "$globalNet" != "1" -a "$globalNet" != "2" ]; then
-                 setprop lockAppNet.globalNet 2
+                 SetProp lockAppNet.globalNet 2
                  iptables -F
                  iptables -P OUTPUT ACCEPT
                  echo "      **Network is enabled!"
@@ -543,9 +563,9 @@ cat ${configfile} | while read Line; do
     fi
 
 done
-setprop lockAppNet.globalNet ""
-setprop lockAppNet.conf.block ""
-setprop android.lockAppNet.pid ""
+SetProp lockAppNet.globalNet ""
+SetProp lockAppNet.conf.block ""
+SetProp android.lockAppNet.pid ""
 remove $prefix/data/property/lockAppNet.globalNet
 remove $prefix/data/property/lockAppNet.whitelist
          

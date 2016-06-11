@@ -1,5 +1,9 @@
 #!/system/bin/sh
 remounted=1
+while [ ! -d /data/property ]; do
+   sleep 1
+done
+
 if [ ! -f /system/etc/passwd ]; then
    if [ ! -w /system ]; then
        mount -o remount,rw /system
@@ -13,9 +17,9 @@ fi
 [ $remounted -eq 0 ] && mount -o remount,ro /system
 
 [ -f /system/etc/lockAppNet.conf ] || exit 0
-setprop android.network.lockAppNet 1
-setprop android.lockAppNet.ntpServerIP ""
-/system/bin/lockAppNet
+echo -n 1 > /data/property/setprop android.network.lockAppNet
+rm /data/property/android.lockAppNet.ntpServerIP
+/system/bin/sh /system/bin/lockAppNet > /data/lockAppNet.log
 
 if [ -f /data/crontabs/lockAppNet/root ]; then 
    crond -c /data/crontabs/lockAppNet
