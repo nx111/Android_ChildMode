@@ -339,8 +339,6 @@ getServerIP()
 
     until [ $j -lt 0 -o $j -gt ${server_count} ]; do
         local iServer=$(echo "$1" | cut -d, -f$j )
-        nslookup "$iServer" "$dns"
-        echo "nslookup: return=$?"
         local ns=$(nslookup "$iServer" "$dns" 2>/dev/null | sed "1,3d" | grep "Address" | grep -v ":\{2,\}" | cut -d: -f2 | sed "s/^ //g" | cut -d' ' -f1 | sed ':a;N;s/\n/,/;ta' )
 
         if echo $ns | grep -qv 'nslookup'; then
@@ -349,7 +347,7 @@ getServerIP()
         j=`expr $j + 1`
     done
     if [ "$serverIP" != "" ]; then
-        echo -e $serverIP |  sed ':a;N;s/\n/,/;ta' | sed "s/^,//"
+        echo -e "$serverIP" |  sed ':a;N;s/\n/,/;ta' | sed "s/^,//"
         return 0
     else
         echo ""
@@ -364,15 +362,23 @@ SyncTime()
              local ntpserverip=$(getServerIP "$ntpserver" | tac | head -1)
              if [ "$ntpserverip" != "" ]; then
                   SetProp android.lockAppNet.ntpServerIP "$ntpserverip"
-                  ntpServerIP=$ntpserverip
+                  ntpServerIP="$ntpserverip"
              fi
         fi
-        local r=$(ps | grep -q ntpd;echo $?)
-        [ $r -eq 0 ] && killall ntpd
-
         if [ "$ntpServerIP" != "" ]; then
-             ntpd -qNn -p `echo $ntpServerIP | sed "s/,/ -p /g"`
-             [ $? -eq 0 ] && time_synced=0 && hwclock -w -u
+             local c=$(( $(echo "$ntpServerIP" |  grep  -o ','| wc -l) + 1 ))
+             local k=1
+             until [ $k -gt $c ]; do
+                     rdate -s $(echo "$ntpServerIP" | cut -d, -f$k)
+                     if [ $? -eq 0 ]; then
+                         time_synced=0
+                         hwclock -w -u
+                         k=$(expr $c + 1)
+                         return 0
+                     else
+                         k=$(expr $k + 1)
+                     fi
+             done
         fi
         return 1
     fi
