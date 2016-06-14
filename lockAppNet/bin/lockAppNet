@@ -6,6 +6,29 @@ configfile2=$prefix/data/system/lockAppNet.conf
 
 [ -f $configfile2 ] && configfile=$configfile2
 [ -f $configfile -o -f $configfile2 ] || exit 0
+
+SetProp()
+{
+    [ $# -lt 1 ] && return
+    if [ "$2" = "" -o $# -eq 1 ]; then
+          remove $prefix/data/property/$1
+          return 0
+    else
+         echo -n "$2" > $prefix/data/property/$1
+    fi
+    return 0
+}
+
+GetProp()
+{
+    [ $# -lt 1 ] && return
+    if [ "$1" != "" -a -f $prefix/data/property/$1 ]; then
+          cat $prefix/data/property/$1
+          return 0
+    fi
+    return 1
+}
+
 local lockAppNetPID=$(GetProp android.lockAppNet.pid)
 if [ "$lockAppNetPID" != "" ]; then
     if ps | grep -q "[[:print:]]\{1,\}[[:space:]]\{1,\}${lockAppNetPID}[[:space:]]\{1,\}"; then
@@ -13,6 +36,9 @@ if [ "$lockAppNetPID" != "" ]; then
         exit 1
     fi
 fi
+echo "Time:"$(date +%H:%M:%S)
+echo "whoami: `whoami`"
+echo "--------------------------------------"
 SetProp android.lockAppNet.pid $$
 ##############################################################
 day=`date +%u`
@@ -55,46 +81,24 @@ echo "SHELL=/system/bin/sh" > $prefix/data/crontabs/lockAppNet/root
 echo "PATH=/sbin:/vendor/bin:/system/sbin:/system/bin:/system/xbin" >> $prefix/data/crontabs/lockAppNet/root
 echo "" >> $prefix/data/crontabs/lockAppNet/root
 #############################################################
-##check busybox grep sed cut 
+##check busybox grep sed cut
 errorflag=0
-if ! which busybox >/dev/null; then 
+if ! which busybox >/dev/null; then
    echo "ERROR: Need busybox!"
    errorflag=1
 fi
-if ! which grep >/dev/null; then 
+if ! which grep >/dev/null; then
    echo "ERROR: Need grep!"
    errorflag=1
 fi
-if ! which sed >/dev/null; then 
+if ! which sed >/dev/null; then
    echo "ERROR: Need sed!"
    errorflag=1
 fi
-if ! which cut >/dev/null; then 
+if ! which cut >/dev/null; then
    echo "ERROR: Need cut!"
    errorflag=1
 fi
-
-SetProp()
-{
-    [ $# -lt 1  && return
-    if [ "$2" = "" -o $# -eq 1 ]; then
-          remove $prefix/data/property/$1
-          return 0
-    else
-         echo -n "$2" > $prefix/data/property/$1
-    fi
-    return 0
-}
-
-GetProp()
-{
-    [ $# -lt 1  && return
-    if [ "$1" != "" -a -f $prefix/data/property/$1 ]; then
-          cat $prefix/data/property/$1
-          return 0
-    fi
-    return 1
-}
 
 remove()
 {
@@ -137,16 +141,16 @@ ApplyWhiteList()
    local appuid=""
    i=0
    until [ $i -lt 0 -o $i -gt $itemcount ]; do
-       appname=$(echo "$whitelist" | cut -d, -f$i) 
-       if [ $? -eq 1 -o "$appname" = "" ]; then 
+       appname=$(echo "$whitelist" | cut -d, -f$i)
+       if [ $? -eq 1 -o "$appname" = "" ]; then
               i=$(expr $i + 1)
               continue
-       fi 
+       fi
        appuid=$(getAppUID $appname)
-       if [ $? -eq 1 -o "$appuid" = "" ]; then 
+       if [ $? -eq 1 -o "$appuid" = "" ]; then
               i=$(expr $i + 1)
               continue
-       fi 
+       fi
        k=0
        uidcount=$(echo $appuid | grep -o "," | wc -l)
        uidcount=$((uidcount + 1))
@@ -163,7 +167,7 @@ ApplyWhiteList()
 mkcrontab()
 {
   	if [ $# -lt 4 ]; then
-		return 
+		return
   	fi
         local vday="$1"
   	local vhour="$2"
@@ -202,7 +206,7 @@ now_in_time()
     local timeif=1
     local j=1
     local i_plan_count=$(( $(echo "$plans" | grep  -o ';'| wc -l) + 1 ))
-    
+
     until [ $j -lt 0 -o $j -gt ${i_plan_count} ]; do
     #        if [ $j -gt 1 ]; then
     #           echo "$plans" | grep -q ","
@@ -213,7 +217,7 @@ now_in_time()
             local plan_time=$(echo "$plani"|sed -e "s/ \{2,\}/ /g"|cut -d' ' -f1)
             local plan_day=$(echo "$plani"|sed -e "s/ \{2,\}/ /g"|cut -d' ' -f2)
             local plan_opt=$(echo "$plani"|sed -e "s/ \{2,\}/ /g"|cut -d' ' -f3)
-            local ptime1=""          
+            local ptime1=""
             local ptime2=""
 	    local ptime1_hour=""
 	    local ptime1_min=""
@@ -249,7 +253,7 @@ now_in_time()
                  if echo "$plan_day" | grep -q "," ; then
                      pday1=$(echo "$plan_day" | cut -d, -f1)
                      pday2=$(echo "$plan_day" | cut -d, -f2)
-                 else           
+                 else
                      pday1=$(echo "$plan_day"|cut -d- -f1)
                      if echo "$plan_day"|grep -q "-"; then
                          pday2=$(echo "$plan_day"|cut -d- -f2)
@@ -259,7 +263,7 @@ now_in_time()
 
             [ "$ptime1_hour" != "" -a "$ptime1_min" != "" ] && mkcrontab "$plan_day" "$ptime1_hour" "$ptime1_min" "$0"
             [ "$ptime2_hour" != "" -a "$ptime2_min" != "" ] && mkcrontab "$plan_day" "$ptime2_hour" "$ptime2_min" "$0"
-            [ "$ptime2_hour" != "" -a "$ptime2_min" != ""  -a "$plan_opt" != "-" ] && mkcrontab "$plan_day" "$ptime1_hour-$ptime2_hour" "*/10" "$0"
+            [ "$ptime2_hour" != "" -a "$ptime2_min" != ""  -a "$plan_opt" != "-" ] && mkcrontab "$plan_day" "$ptime1_hour-$ptime2_hour" "*/5" "$0"
 
             if [ $timeif -eq 0 -o $timeif -eq 2 ]; then
                     j=`expr $j + 1`
@@ -332,12 +336,15 @@ getServerIP()
     local j=1
     local server_count=$(( $(echo "$1" | grep  -o ','| wc -l) + 1 ))
     local serverIP=""
-    
-    until [ $j -lt 0 -o $j -gt ${server_count} ]; do   
+
+    until [ $j -lt 0 -o $j -gt ${server_count} ]; do
         local iServer=$(echo "$1" | cut -d, -f$j )
+        nslookup "$iServer" "$dns"
+        echo "nslookup: return=$?"
         local ns=$(nslookup "$iServer" "$dns" 2>/dev/null | sed "1,3d" | grep "Address" | grep -v ":\{2,\}" | cut -d: -f2 | sed "s/^ //g" | cut -d' ' -f1 | sed ':a;N;s/\n/,/;ta' )
+
         if echo $ns | grep -qv 'nslookup'; then
-           serverIP="${serverIP}\n${ns}"
+           [ "$ns" != "" ] && serverIP="${serverIP}\n${ns}"
         fi
         j=`expr $j + 1`
     done
@@ -345,6 +352,7 @@ getServerIP()
         echo -e $serverIP |  sed ':a;N;s/\n/,/;ta' | sed "s/^,//"
         return 0
     else
+        echo ""
         return 1
     fi
 }
@@ -353,21 +361,21 @@ SyncTime()
 {
     if [ $time_synced -eq 1 ]; then
         if [ "$ntpServerIP" = "" ]; then
-             ntpserver=$(getServerIP "$ntpservername")
-             if [ "$ntpserver" != "" ]; then
-                  SetProp android.lockAppNet.ntpServerIP "$ntpserver"
-       	          ntpServerIP=$ntpserver
+             local ntpserverip=$(getServerIP "$ntpserver" | tac | head -1)
+             if [ "$ntpserverip" != "" ]; then
+                  SetProp android.lockAppNet.ntpServerIP "$ntpserverip"
+                  ntpServerIP=$ntpserverip
              fi
         fi
         local r=$(ps | grep -q ntpd;echo $?)
         [ $r -eq 0 ] && killall ntpd
+
         if [ "$ntpServerIP" != "" ]; then
              ntpd -qNn -p `echo $ntpServerIP | sed "s/,/ -p /g"`
-             [ $? -eq 0 ] && time_synced=0 && hwclock -w
+             [ $? -eq 0 ] && time_synced=0 && hwclock -w -u
         fi
         return 1
     fi
-
 }
 ###############################################################
 SetProp lockAppNet.conf.block ""
@@ -389,7 +397,7 @@ cat ${configfile} | while read Line; do
    fi
    lockhost=$(echo "$Line"|sed -e "s/\([[:graph:]]*\)[[:space:]]*\(.*\)/\1\$\2"/)
    [ "$lockhost" = "" ] && break
-   if ! echo "${lockhost}" | grep -q "\$" ; then 
+   if ! echo "${lockhost}" | grep -q "\$" ; then
         continue
    fi
    hostname=$(echo "${lockhost}"|cut -d$ -f1)
@@ -436,10 +444,10 @@ cat ${configfile} | while read Line; do
         fi
        exit
    elif [ "$hostname" = "NTPSERVER" -a "$blockname" = "Main" -a "$ntpServerIP" = "" ]; then
-       local ntpservername=$(echo "${lockhost}"|cut -d$ -f2)
-       ntpserver=$(getServerIP "$ntpservername")
-       SetProp android.lockAppNet.ntpServerIP "$ntpserver"
-       ntpServerIP=$ntpserver
+       ntpserver=$(echo "${lockhost}"|cut -d$ -f2)
+       local ntpserverip=$(getServerIP "$ntpserver" | tac | head -1)
+       SetProp android.lockAppNet.ntpServerIP "$ntpserverip"
+       ntpServerIP=$ntpserverip
        continue
    elif [ "${hostname:0:13}" = "APP_WHITELIST"  -a "$blockname" = "Main" ]; then
         [ -f $prefix/data/property/lockAppNet.whitelist ] && whitelist=$(cat $prefix/data/property/lockAppNet.whitelist)
@@ -448,12 +456,12 @@ cat ${configfile} | while read Line; do
         [ -f $prefix/data/property/lockAppNet.whitelist ] || touch $prefix/data/property/lockAppNet.whitelist
         echo "$whitelist"$(echo "${lockhost}"|cut -d$ -f2) >> $prefix/data/property/lockAppNet.whitelist
 	SetProp lockAppNet.whitelist.imported 1
-        #echo "Apply: $Line"
+        #echo "- Apply: $Line"
         continue
    elif [ "$blockname" = "Network" ]; then
    #######################################################
        [ $time_synced -eq 1 ] && SyncTime
-      
+
        if echo "$hostname" | grep -q ":"; then
            rulename=$(echo "$hostname" | cut -d\: -f1)
            hostname=$(echo "$hostname" | cut -d\: -f2)
@@ -465,11 +473,11 @@ cat ${configfile} | while read Line; do
            skipme=1
        fi
        if [ $skipme -eq 1 ]; then
-           echo "Skip : $Line"
+           echo "- Skip : $Line"
            continue
        fi
        if [ $netlock -eq 0 ]; then
-            echo "Disable Rule: $Line"
+            echo "- Disable Rule: $Line"
        elif [ $netlock -eq 1 ]; then
             echo "Apply Rule: $Line"
        fi
@@ -566,10 +574,10 @@ done
 SetProp lockAppNet.globalNet ""
 SetProp lockAppNet.conf.block ""
 SetProp android.lockAppNet.pid ""
-remove $prefix/data/property/lockAppNet.globalNet
-remove $prefix/data/property/lockAppNet.whitelist
-         
-[ -w $prefix/system ] && mount -o remount,ro $prefix/system
+SetProp lockAppNet.globalNet
+SetProp lockAppNet.whitelist
+
+#[ -w $prefix/system ] && mount -o remount,ro $prefix/system
 
 
 exit 0
