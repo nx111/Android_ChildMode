@@ -366,9 +366,17 @@ SyncTime()
              fi
         fi
         if [ "$ntpServerIP" != "" ]; then
-             local c=$(( $(echo "$ntpServerIP" |  grep  -o ','| wc -l) + 1 ))
-             local k=1
-             until [ $k -gt $c ]; do
+             if [ "`which ntpd`" != "" ]; then
+                 ntpd -qNn -p `echo "$ntpServerIP" | sed "s/,/ -p /g"`
+                 if [ $? -eq 0 ]; then
+                         time_synced=0
+                         hwclock -w -u
+                         return 0
+                 fi
+             else
+                 local c=$(( $(echo "$ntpServerIP" |  grep  -o ','| wc -l) + 1 ))
+                 local k=1
+                 until [ $k -gt $c ]; do
                      rdate -s $(echo "$ntpServerIP" | cut -d, -f$k)
                      if [ $? -eq 0 ]; then
                          time_synced=0
@@ -378,7 +386,8 @@ SyncTime()
                      else
                          k=$(expr $k + 1)
                      fi
-             done
+                 done
+             fi
         fi
         return 1
     fi
