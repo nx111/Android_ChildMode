@@ -8,12 +8,19 @@ cat <<EOF
 bin/lockAppNet
 bin/net_onoff.sh
 addon.d/80-lockAppNet.sh
+etc/localtime
 etc/lockAppNet.conf
-etc/crontabs
 etc/crontabs/lockAppNet
 etc/crontabs/lockAppNet/root
-etc/init.d/02lockAppNet
-EOF
+etc/zoneinfo/GB
+etc/zoneinfo/CET
+etc/zoneinfo/GMT
+etc/zoneinfo/MST
+etc/zoneinfo/MET
+etc/zoneinfo/PRC
+etc/zoneinfo/Hongkong
+etc/zoneinfo/UCT
+etc/init.d/02lockAppNetEOF
 }
 
 case "$1" in
