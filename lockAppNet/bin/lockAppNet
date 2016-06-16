@@ -7,6 +7,8 @@ crontabfile=$prefix/data/crontabs/lockAppNet/root
 LOGFILE=$prefix/data/lockAppNet.log
 OUTPUT="/dev/tty"
 crontabs=""
+daemon=0
+debug=0
 
 [ -f $configfile2 ] && configfile=$configfile2
 [ -f $configfile -o -f $configfile2 ] || exit 0
@@ -16,7 +18,9 @@ if [ $# -ge 1 ]; then
     for argv in $*; do
         if [ "$argv" = "-debug" ]; then
            setprop android.lockAppNet.debug 1
-           break
+           debug=1
+        elif [ "$argv" = "-d" ]; then
+           daemon=1
         fi
     done
 fi
@@ -45,7 +49,7 @@ ntpServerIP=
 dns="114.114.114.114"
 time_synced=1
 timezone=
-sleeptime=120
+sleeptime=60
 [ -f $configfile ] && configLines=$(cat $configfile)
 
 #check network lock is opened,if opened,do not disable network
@@ -93,11 +97,24 @@ fi
 
 getLocalTime()
 {
+    local haveFMT=0
+    for opt in $*;do
+        if [ "${opt:0:2}" = "+%" -a "$opt" != "+%s" ]; then
+           haveFMT=1
+           break
+        fi
+    done
     local utc=$(date +%s)
+    local result=""
     if [ "$timezone" = "" ]; then
-        echo $utc
+        result=$utc
     else
-        echo $((expr $utc + $timezone))
+        result=$((expr $utc + $timezone))
+    fi
+    if [ $haveFMT -eq 0 ]; then
+        echo "$result"
+    else
+        date $* -d "@$result"
     fi
     return 0
 }
@@ -335,7 +352,7 @@ getServerIP()
     [ $# -lt 1 ] && return
     if [ -f /proc/net/stat/arp_cache ]; then
         local num=$(cat /proc/net/stat/arp_cache | cut -d' ' -f1 | sed -n '2p')
-        [ 0$num -lt 2 ] && return 
+        [ 0$num -lt 1 ] && return 
     fi
     local j=1
     local server_count=$(( $(echo "$1" | grep  -o ','| wc -l) + 1 ))
@@ -363,7 +380,7 @@ SyncTime()
 {
     if [ -f /proc/net/stat/arp_cache ]; then
             local num=$(cat /proc/net/stat/arp_cache | cut -d' ' -f1 | sed -n '2p')
-            if [ 0$num -lt 2 ]; then
+            if [ 0$num -lt 1 ]; then
                   time_synced=-1
                   return
             fi
@@ -415,6 +432,7 @@ lockAppNetRun()
      local ruleClassName=""
      local whitelist=""
      local globalNet=0
+     echo "   Time: $(getLocalTime +%H:%M:%S)"
      echo "==========================================="
      echo "$configLines" | while read Line; do
         Line=$(echo "$Line" | sed "s/#.*$//g")
@@ -678,6 +696,7 @@ lockAppNetCrond()
           if [ "$debug" = "1" ]; then
              OUTPUT=$LOGFILE
              [ ! -f $OUTPUT ] && touch $OUTPUT
+             > $OUTPUT
           else
              OUTPUT="/dev/tty"
           fi
@@ -692,10 +711,10 @@ lockAppNetCrond()
           local weekday=$(date +%w -d "@$t2")
           local dt=$(expr $t2 - $t1)
           if [ $dt -gt $(expr 600 + $sleeptime) -o $dt -lt $(expr -600 - $sleeptime) ]; then
-               echo ":: time disparity of $dt seconds detected!" >> OUTPUT
-               SyncTime >> OUTPUT
+               echo ":: time disparity of $dt seconds detected!" >> $OUTPUT
+               SyncTime >> $OUTPUT
                sleep 10
-               lockAppNetRun >> OUTPUT
+               lockAppNetRun >> $OUTPUT
           else
                echo "$crontabs" | while read Line;do
                      Line=$(echo "$Line" | sed "s/#.*$//g")
@@ -725,9 +744,9 @@ lockAppNetCrond()
                      isOnTimeIF "week" "$weekday" "$csweek"
                      local ifweek=$?
                      if [ $ifmin -eq 0 -a $ifhour -eq 0 -a $ifday -eq 0 -a $ifweek -eq 0 ]; then
-                           echo "Cron Task running: $Line" >> OUTPUT
-                           lockAppNetRun >> OUTPUT
-                     fi                      
+                           echo "Cron Task running: $Line" >> $OUTPUT
+                           lockAppNetRun >> $OUTPUT
+                     fi 
                      ######################
                done
           fi
@@ -735,14 +754,15 @@ lockAppNetCrond()
     echo ""
 }
 ##====================  main  ================
-lockAppNetRun
-if [ $# -ge 1 ]; then
-    for argv in $*; do
-        if [ "$argv" = "-d" ]; then
-           lockAppNetCrond
-           break
-        fi
-    done
+if [ "$debug" = "1" ]; then
+     OUTPUT=$LOGFILE
+     echo "## OUTPUT redirect to $OUTPUT!"
+     [ ! -f $OUTPUT ] && touch $OUTPUT
+else
+     OUTPUT="/dev/tty"
 fi
+                                                                               
+lockAppNetRun >> $OUTPUT
+[ $daemon -eq 1 ] && lockAppNetCrond
 
 exit 0
