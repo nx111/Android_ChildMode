@@ -4,21 +4,33 @@ hostsconfig=$prefix/system/etc/hosts
 configfile=$prefix/system/etc/lockAppNet.conf
 configfile2=$prefix/data/system/lockAppNet.conf
 crontabfile=$prefix/data/crontabs/lockAppNet/root
+LOGFILE=$prefix/data/lockAppNet.log
+OUTPUT="/dev/tty"
 crontabs=""
 
 [ -f $configfile2 ] && configfile=$configfile2
 [ -f $configfile -o -f $configfile2 ] || exit 0
 
-local lockAppNetPID=$(getprop android.lockAppNet.pid)
+setprop android.lockAppNet.debug ""
+if [ $# -ge 1 ]; then
+    for argv in $*; do
+        if [ "$argv" = "-debug" ]; then
+           setprop android.lockAppNet.debug 1
+           break
+        fi
+    done
+fi
+lockAppNetPID=$(getprop android.lockAppNet.pid)
 if [ "$lockAppNetPID" != "" ]; then
     if ps | grep -q "[[:print:]]\{1,\}[[:space:]]\{1,\}${lockAppNetPID}[[:space:]]\{1,\}"; then
-        echo "Warnning: $0 already is running,exit now!"
+        echo "Warnning: $0 already is running(PID=$lockAppNetPID),exit now!"
+        [ $# -gt 1 -a "$1" = "-debug" ] && setprop android.lockAppNet.debug 1
         exit 1
     fi
 fi
 
-echo "whoami: `whoami`"
 echo "--------------------------------------"
+echo "   user: `whoami`   PID: $$"
 setprop android.lockAppNet.pid $$
 ##############################################################
 day=`date +%u`
@@ -29,9 +41,11 @@ nextmorning=$((6*3600))
 readonly=0
 [ -w $prefix/system ] && readonly=1
 ntpserver="stdtime.gov.hk"
+ntpServerIP=
 dns="114.114.114.114"
 time_synced=1
 timezone=
+sleeptime=120
 [ -f $configfile ] && configLines=$(cat $configfile)
 
 #check network lock is opened,if opened,do not disable network
@@ -181,7 +195,7 @@ mkcrontab()
                    crontabs="$crontabs\n$vmin        $vhour  *       *       $vday   $0"
              fi
         fi
-        echo "$crontabs" > $crontabfile
+       #echo "$crontabs" > $crontabfile
 }
 now_in_time()
 {
@@ -319,7 +333,10 @@ now_in_time()
 getServerIP()
 {
     [ $# -lt 1 ] && return
-
+    if [ -f /proc/net/stat/arp_cache ]; then
+        local num=$(cat /proc/net/stat/arp_cache | cut -d' ' -f1 | sed -n '2p')
+        [ 0$num -lt 2 ] && return 
+    fi
     local j=1
     local server_count=$(( $(echo "$1" | grep  -o ','| wc -l) + 1 ))
     local serverIP=""
@@ -344,11 +361,20 @@ getServerIP()
 
 SyncTime()
 {
-    if [ $time_synced -eq 1 ]; then
+    if [ -f /proc/net/stat/arp_cache ]; then
+            local num=$(cat /proc/net/stat/arp_cache | cut -d' ' -f1 | sed -n '2p')
+            if [ 0$num -lt 2 ]; then
+                  time_synced=-1
+                  return
+            fi
+    fi
+
+    if [ $time_synced -ne 0 ]; then
+        #echo "ntpServerIP=$ntpServerIP"
         if [ "$ntpServerIP" = "" ]; then
              local ntpserverip=$(getServerIP "$ntpserver" | tac | head -1)
              if [ "$ntpserverip" != "" ]; then
-                  setprop android.lockAppNet.ntpServerIP "$ntpserverip"
+                  #setprop android.lockAppNet.ntpServerIP "$ntpserverip"
                   ntpServerIP="$ntpserverip"
              fi
         fi
@@ -364,7 +390,8 @@ SyncTime()
                  local c=$(( $(echo "$ntpServerIP" |  grep  -o ','| wc -l) + 1 ))
                  local k=1
                  until [ $k -gt $c ]; do
-                     rdate -s $(echo "$ntpServerIP" | cut -d, -f$k)
+                     local cur=$(echo "$ntpServerIP" | cut -d, -f$k)
+                     rdate -s $cur
                      if [ $? -eq 0 ]; then
                          time_synced=0
                          hwclock -w -u
@@ -376,26 +403,19 @@ SyncTime()
                  done
              fi
         fi
+        time_synced=-1
         return 1
     fi
 }
 ###############################################################
 lockAppNetRun()
 {
-     echo "Time:"$(date +%H:%M:%S)
-     echo "SHELL=/system/bin/sh" > $prefix/data/crontabs/lockAppNet/root
-     echo "PATH=/sbin:/vendor/bin:/system/sbin:/system/bin:/system/xbin" >> $prefix/data/crontabs/lockAppNet/root
-     echo "" >> $prefix/data/crontabs/lockAppNet/root
-
      local whitelist=""
      local blockname=""
      local ruleClassName=""
      local whitelist=""
      local globalNet=0
-
-     ntpServerIP=`getprop android.lockAppNet.ntpServerIP`
-
-
+     echo "==========================================="
      echo "$configLines" | while read Line; do
         Line=$(echo "$Line" | sed "s/#.*$//g")
         if echo "$Line" | grep -q "^[[:space:]]*#"; then
@@ -458,7 +478,6 @@ lockAppNetRun()
         elif [ "$hostname" = "NTPSERVER" -a "$blockname" = "Main" -a "$ntpServerIP" = "" ]; then
             ntpserver=$(echo "${lockhost}"|cut -d$ -f2)
             local ntpserverip=$(getServerIP "$ntpserver" | tac | head -1)
-            setprop android.lockAppNet.ntpServerIP "$ntpserverip"
             ntpServerIP=$ntpserverip
             continue
         elif [ "$hostname" = "TIMEZONE" -a "$blockname" = "Main" ]; then
@@ -483,13 +502,13 @@ lockAppNetRun()
                 skipme=1
             fi
             if [ $skipme -eq 1 ]; then
-                echo "- Skip : $Line"
+                echo " -  Skip : $Line"
                 continue
             fi
             if [ $netlock -eq 0 ]; then
-                 echo "- Disable Rule: $Line"
+                 echo " -  Disable Rule: $Line"
             elif [ $netlock -eq 1 ]; then
-                 echo "Apply Rule: $Line"
+                 echo "->  Apply Rule: $Line"
             fi
             local plans=$(echo "${lockhost}"|cut -d$ -f2)
             if [ "${hostname}" != "*" ]; then
@@ -509,7 +528,7 @@ lockAppNetRun()
                           [ -w $prefix/system ] || mount -o remount,rw $prefix/system
                           sed -e "s/#*\([^#]*${hostname}.*\)/\1/g" -i ${hostsconfig}
                       fi
-                      echo "     $hostname===>disabled"
+                      echo "    -- $hostname===>disabled"
                   elif [ "$globalNet" != "1" -a "$globalNet" != "2" ]; then
                       setprop lockAppNet.globalNet 1
                       iptables -F
@@ -532,7 +551,7 @@ lockAppNetRun()
                       #iptables -A OUTPUT -p icmp --icmp-type 8 -j ACCEPT
                       iptables -A OUTPUT -p 1 -j ACCEPT
                       ApplyWhiteList
-                      echo "      **Network is disabled!"
+                      echo "    --Network is disabled!"
                   fi
              else
                   if [ "${hostname}" != "*" ]; then
@@ -540,12 +559,12 @@ lockAppNetRun()
                           [ -w $prefix/system ] || mount -o remount,rw $prefix/system
                           sed -e "s/\([^#]*${hostname}.*\)/#\1/g" -i ${hostsconfig}
                       fi
-                      echo "      $hostname===>enabled"
+                      echo "   --$hostname===>enabled"
                   elif [ "$globalNet" != "1" -a "$globalNet" != "2" ]; then
                       setprop lockAppNet.globalNet 2
                       iptables -F
                       iptables -P OUTPUT ACCEPT
-                      echo "      **Network is enabled!"
+                      echo "   --Network is enabled!"
                   fi
              fi
          elif  [ "$blockname" = "Application" ]; then
@@ -586,20 +605,18 @@ lockAppNetRun()
 }
 
 ##isOnTimeIF <mode> <now item> <crontab item>   
-isOnTime()
+isOnTimeIF()
 {
      [ $# -lt 3 ] && return 1
-     local mode=$1
-     local nnum=$2
-     local snum=$3
+     local mode="$1"
+     local nnum="$2"
+     local snum="$3"
      if echo "$snum" | grep -q '-'; then
          local cnum1=$(echo "$snum" | cut -d- -f1)
          local cnum2=$(echo "$snum" | cut -d- -f2)
          if [ $nnum -ge $cnum1 -a $nnum -le $cnum2 ]; then
-               echo 0
                return 0
          else
-               echo 1
                return 1
          fi
      elif echo "$snum" | grep -q ','; then
@@ -607,19 +624,17 @@ isOnTime()
          local k=1
          local sif="1 -eq 1"
          until [ $k -gt $ci ]; do
-            local cnumi=$(echo "$snum" | cut -d, -f1)
-            sif="$sif -o $nnum -eq $cnumi"
-            k=$(expr $k + 1)
+             local cnumi=$(echo "$snum" | cut -d, -f1)
+             sif="$sif -o $nnum -eq $cnumi"
+             k=$(expr $k + 1)
          done
          if [ $sif ]; then
-            echo 0
-            return 0
+             return 0
          else
-               echo 1
-               return 1
+             return 1
          fi
-     elif echo "$snum" | grep -q '\/'; then
-          local cnum2=$(echo "$snum" | cut -d/ -f2)
+     elif echo "$snum" | grep -q "/"; then
+          local cnum2=$(echo "$snum" | cut -d'/' -f2)
           local len=1
           if [ "$mode" = "minute" ]; then
                   len=60
@@ -634,22 +649,24 @@ isOnTime()
           local m1=$(expr $nnum % $cnum2)
           local m2=$(expr $len % $cnum2)
           if [ $m1 -eq $m2 ]; then
-               echo 0
                return 0
           else
-               echo 1
                return 1
           fi
       else
-          if [ "$snum" = "*" -o $snum -eq $nnum ]; then
-              echo 0
+          if [ "$snum" = "*" ];  then
               return 0
           else
-              echo 1
+              local offset=0
+              [ "$mode" = "minute" ] && offset=$(expr $sleeptime / 60 + 1)
+              local tmin=$(expr $snum - $offset)
+              local tmax=$(expr $snum + $offset)
+              if [ "$nnum" -gt "$tmin" -a $nnum -lt "$tmax" ]; then
+                    return 0
+              fi
               return 1
-          fi  
+          fi
       fi 
-      echo 1
       return 1
 }
 lockAppNetCrond()
@@ -657,20 +674,28 @@ lockAppNetCrond()
     local t1=0
     local t2=$(getLocalTime)
     until [ 1 -eq 2 ]; do
+          local debug=$(getprop android.lockAppNet.debug)
+          if [ "$debug" = "1" ]; then
+             OUTPUT=$LOGFILE
+             [ ! -f $OUTPUT ] && touch $OUTPUT
+          else
+             OUTPUT="/dev/tty"
+          fi
           [ -f "$crontabfile" ] || continue
           local crontabs=$(cat $crontabfile)
-          t1=$t2
-          sleep 180
+          [ $time_synced -ne -1 ] && t1=$t2
+          sleep $sleeptime
           t2=$(getLocalTime)
           local minute=$(date +%M -d "@$t2")
           local hour=$(date +%H -d "@$t2")
           local day=$(date +%m -d "@$t2")
           local weekday=$(date +%w -d "@$t2")
           local dt=$(expr $t2 - $t1)
-          if [ $dt -gt 200 -a $dt -lt -200 ]; then
-               echo ": time disparity of $dt minutes detected!"
-               SyncTime
-               lockAppNetRun
+          if [ $dt -gt $(expr 600 + $sleeptime) -o $dt -lt $(expr -600 - $sleeptime) ]; then
+               echo ":: time disparity of $dt seconds detected!" >> OUTPUT
+               SyncTime >> OUTPUT
+               sleep 10
+               lockAppNetRun >> OUTPUT
           else
                echo "$crontabs" | while read Line;do
                      Line=$(echo "$Line" | sed "s/#.*$//g")
@@ -679,35 +704,45 @@ lockAppNetCrond()
                      elif echo "$Line" | grep -q "^[[:space:]]*$"; then
                           continue;
                      fi
-                     Line=$(echo $Line | sed -e "s/[[:space:]]\{1,\}/ /g" -e "s/^[[:space:]]\{1,\}//g" -e "s/[[:space:]]\{1,\}$//g")
-                     local csmin=$(echo $Line | cut -d' ' -f1)
-                     local cshour=$(echo $Line | cut -d' ' -f2)
-                     local csday=$(echo $Line | cut -d' ' -f3)
-                     local csweek=$(echo $Line | cut -d' ' -f4)
-                     local cscmd=$(echo $Line | cut -d' ' -f5)
+                     Line=$(echo "$Line" | sed -e "s/[[:space:]]\{1,\}/ /g" -e "s/^[[:space:]]\{1,\}//g" -e "s/[[:space:]]\{1,\}$//g")
+                     local csmin=$(echo "$Line" | cut -d' ' -f1)
+                     local cshour=$(echo "$Line" | cut -d' ' -f2)
+                     local csday=$(echo "$Line" | cut -d' ' -f3)
+                     local csweek=$(echo "$Line" | cut -d' ' -f4)
+                     local cscmd=$(echo "$Line" | cut -d' ' -f5)
                      [ "$csmin" = "" -o "$cshour" = "" -o "$csday" = "" -o "$csweek" = "" -o "$cscmd" = "" ] && continue
-                     if [ "$csweek" != "*" ] ; then
+                     if [ "$csweek" != "*" ]; then
                            csday="*"
                      elif [ "$csday" != "*" ]; then
                            csweek="*"
                      fi
-
-                     local ifmin=$(isOnTime "minute" "$minute" "$csmin")
-                     local ifhour=$(isOnTime "hour" "$hour" "$cshour")
-                     local ifday=$(isOnTime "day" "$day" "$csday")
-                     local ifweek=$(isOnTime "week" "$weekday" "$csweek")
+                     isOnTimeIF "minute" "$minute" "$csmin"
+                     local ifmin=$?
+                     isOnTimeIF "hour" "$hour" "$cshour"
+                     local ifhour=$?
+                     isOnTimeIF "day" "$day" "$csday"
+                     local ifday=$?
+                     isOnTimeIF "week" "$weekday" "$csweek"
+                     local ifweek=$?
                      if [ $ifmin -eq 0 -a $ifhour -eq 0 -a $ifday -eq 0 -a $ifweek -eq 0 ]; then
-                           lockAppNetRun
+                           echo "Cron Task running: $Line" >> OUTPUT
+                           lockAppNetRun >> OUTPUT
                      fi                      
                      ######################
                done
           fi
     done  
+    echo ""
 }
 ##====================  main  ================
 lockAppNetRun
 if [ $# -ge 1 ]; then
-   [ "$1" = "-d" ] && lockAppNetCrond
+    for argv in $*; do
+        if [ "$argv" = "-d" ]; then
+           lockAppNetCrond
+           break
+        fi
+    done
 fi
 
 exit 0

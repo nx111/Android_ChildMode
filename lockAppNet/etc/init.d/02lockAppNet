@@ -1,22 +1,7 @@
 #!/system/bin/sh
-export PATH=/sbin:/vendor/bin:/system/sbin:/system/bin:/system/xbin
-export SHELL=/system/bin/sh
-export MKSH=/system/bin/sh
-export HOME=/data
 
 remounted=1
-
-[ -d /data/log ] || mkdir /data/log
-if [ -f /data/log/lockAppNet.log ]; then
-   rm  /data/log/lockAppNet.log
-else
-   touch /data/log/lockAppNet.log
-fi
-[ -f /data/log/crond.log ] && rm /data/log/crond.log
-
 sleep 30
-
-set >>/data/log/lockAppNet.log
 
 if [ ! -f /system/etc/passwd ]; then
    if [ ! -w /system ]; then
@@ -31,13 +16,5 @@ fi
 [ $remounted -eq 0 ] && mount -o remount,ro /system
 
 [ -f /system/etc/lockAppNet.conf ] || exit 0
-echo -n 1 > /data/property/android.network.lockAppNet
-[ -f /data/property/android.lockAppNet.ntpServerIP ] && rm /data/property/android.lockAppNet.ntpServerIP
-/system/bin/sh /system/bin/lockAppNet >> /data/log/lockAppNet.log
-
-if [ -f /data/crontabs/lockAppNet/root ]; then 
-   crond -c /data/crontabs/lockAppNet
-elif [ -f /system/etc/crontabs/lockAppNet/root ]; then
-   crond -c /system/etc/crontabs/lockAppNet
-fi
+/system/bin/sh /system/bin/lockAppNet -d
 
