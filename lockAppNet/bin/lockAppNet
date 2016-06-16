@@ -3,31 +3,11 @@ prefix=""
 hostsconfig=$prefix/system/etc/hosts
 configfile=$prefix/system/etc/lockAppNet.conf
 configfile2=$prefix/data/system/lockAppNet.conf
+crontabfile=$prefix/data/crontabs/lockAppNet/root
+crontabs=""
 
 [ -f $configfile2 ] && configfile=$configfile2
 [ -f $configfile -o -f $configfile2 ] || exit 0
-
-setProp()
-{
-    [ $# -lt 1 ] && return
-    if [ "$2" = "" -o $# -eq 1 ]; then
-          remove $prefix/data/property/$1
-          return 0
-    else
-         echo -n "$2" > $prefix/data/property/$1
-    fi
-    return 0
-}
-
-getProp()
-{
-    [ $# -lt 1 ] && return
-    if [ "$1" != "" -a -f $prefix/data/property/$1 ]; then
-          cat $prefix/data/property/$1
-          return 0
-    fi
-    return 1
-}
 
 local lockAppNetPID=$(getprop android.lockAppNet.pid)
 if [ "$lockAppNetPID" != "" ]; then
@@ -36,7 +16,7 @@ if [ "$lockAppNetPID" != "" ]; then
         exit 1
     fi
 fi
-echo "Time:"$(date +%H:%M:%S)
+
 echo "whoami: `whoami`"
 echo "--------------------------------------"
 setprop android.lockAppNet.pid $$
@@ -48,12 +28,11 @@ timeinday=$(($time % 86400))
 nextmorning=$((6*3600))
 readonly=0
 [ -w $prefix/system ] && readonly=1
-ruleClassName=""
-whitelist=""
-globalNet=0
 ntpserver="stdtime.gov.hk"
 dns="114.114.114.114"
 time_synced=1
+timezone=
+[ -f $configfile ] && configLines=$(cat $configfile)
 
 #check network lock is opened,if opened,do not disable network
 netlock=`getprop android.network.lockAppNet`
@@ -73,13 +52,11 @@ elif [ "$netlock" = "0" ]; then
       fi
 fi
 
-if [ ! -d $prefix/data/crontabs/lockAppNet ]; then
-	mkdir $prefix/data/crontabs
-	mkdir $prefix/data/crontabs/lockAppNet
+if [ ! -d "$(dirname $crontabfile)" ]; then
+	mkdir $(dirname $crontabfile)
+	mkdir $crontabs
 fi
-echo "SHELL=/system/bin/sh" > $prefix/data/crontabs/lockAppNet/root
-echo "PATH=/sbin:/vendor/bin:/system/sbin:/system/bin:/system/xbin" >> $prefix/data/crontabs/lockAppNet/root
-echo "" >> $prefix/data/crontabs/lockAppNet/root
+
 #############################################################
 ##check busybox grep sed cut
 errorflag=0
@@ -99,6 +76,17 @@ if ! which cut >/dev/null; then
    echo "ERROR: Need cut!"
    errorflag=1
 fi
+
+getLocalTime()
+{
+    local utc=$(date +%s)
+    if [ "$timezone" = "" ]; then
+        echo $utc
+    else
+        echo $((expr $utc + $timezone))
+    fi
+    return 0
+}
 
 remove()
 {
@@ -173,7 +161,6 @@ mkcrontab()
   	local vhour="$2"
   	local vmin="$3"
         local vcommand="$4"
-        local crontabfile=$prefix/data/crontabs/lockAppNet/root
         [ "$vcommand" = "" ] && vcommand="$0"
         [ "$vday" = "" ] && vday="*"
         [ "$vhour" = "" ] && vhour="*"
@@ -182,19 +169,19 @@ mkcrontab()
         local newitem="$vmini\s\{1,\}$vhour\s\{1,\}*\s\{1\}*\s\{1,\}\S\{1,\}\s\{1,\}$0"
         local items=$(echo "$newitem" | sed -e "s/\*/\\\*/g" -e "s/\//\\//g")
         if ! grep  -q "$items" $crontabfile; then
-             echo "$vmin	$vhour	*	*	$vday	$0"  >> $crontabfile
+             crontabs="$crontabs\n$vmin	$vhour	*	*	$vday	$0"
         elif [ "$vday" = "*" ]; then
              newitem="\($vmin[[:space:]]+$vhour[[:space:]]+*[[:space:]]+*[[:space:]]+\)[^*]+\([[:space:]]+$0\)"
              items=$(echo "$newitem" | sed -e "s/\*/\\\*/g" -e "s/\//\\//g")
-             echo sed -e "s/$items/\1\*\2/g" -i $crontabfile >/dev/null 2>/dev/null
+             crontabls="$crontabls\n"$(echo -n "$crontabls" | sed -e "s/$items/\1\*\2/g")
         elif [ "$vday" != "*" ]; then
              newitem="$vmini\s\{1,\}$vhour\s\{1,\}*\s\{1\}*\s\{1,\}*\s\{1,\}$0"
              items=$(echo "$newitem" | sed -e "s/\*/\\\*/g" -e "s/\//\\//g")
-             if ! grep -q "$items" $crontabfile; then
-                   echo "$vmin        $vhour  *       *       $vday   $0"  >> $crontabfile
+             if ! (echo $crontabs | grep -q "$items"); then
+                   crontabs="$crontabs\n$vmin        $vhour  *       *       $vday   $0"
              fi
         fi
-
+        echo "$crontabs" > $crontabfile
 }
 now_in_time()
 {
@@ -263,7 +250,7 @@ now_in_time()
 
             [ "$ptime1_hour" != "" -a "$ptime1_min" != "" ] && mkcrontab "$plan_day" "$ptime1_hour" "$ptime1_min" "$0"
             [ "$ptime2_hour" != "" -a "$ptime2_min" != "" ] && mkcrontab "$plan_day" "$ptime2_hour" "$ptime2_min" "$0"
-            [ "$ptime2_hour" != "" -a "$ptime2_min" != ""  -a "$plan_opt" != "-" ] && mkcrontab "$plan_day" "$ptime1_hour-$ptime2_hour" "*/5" "$0"
+            #[ "$ptime2_hour" != "" -a "$ptime2_min" != ""  -a "$plan_opt" != "-" ] && mkcrontab "$plan_day" "$ptime1_hour-$ptime2_hour" "*/5" "$0"
 
             if [ $timeif -eq 0 -o $timeif -eq 2 ]; then
                     j=`expr $j + 1`
@@ -393,205 +380,334 @@ SyncTime()
     fi
 }
 ###############################################################
-setprop lockAppNet.conf.block ""
-setprop lockAppNet.whitelist.imported ""
+lockAppNetRun()
+{
+     echo "Time:"$(date +%H:%M:%S)
+     echo "SHELL=/system/bin/sh" > $prefix/data/crontabs/lockAppNet/root
+     echo "PATH=/sbin:/vendor/bin:/system/sbin:/system/bin:/system/xbin" >> $prefix/data/crontabs/lockAppNet/root
+     echo "" >> $prefix/data/crontabs/lockAppNet/root
 
-ntpServerIP=`getprop android.lockAppNet.ntpServerIP`
+     local whitelist=""
+     local blockname=""
+     local ruleClassName=""
+     local whitelist=""
+     local globalNet=0
 
-cat ${configfile} | while read Line; do
-   Line=$(echo "$Line" | sed "s/#.*$//g")
-   if echo "$Line" | grep -q "^[[:space:]]*#"; then
-        continue;
-   elif echo "$Line" | grep -q "^[[:space:]]*$"; then
-        continue;
-   fi
-   if echo "$Line" |  grep -q "[[:space:]]*\[\{1,\}.*\]\{1,\}[[:space:]]*$"; then
-        blockname=$(echo "$Line"|sed "s/[[:space:]]*\[\{1,\}[[:space:]]*\(.*\)[[:space:]]*\]\{1,\}[[:space:]]*$/\1/")
-        setprop lockAppNet.conf.block "$blockname"
-        continue;
-   fi
-   lockhost=$(echo "$Line"|sed -e "s/\([[:graph:]]*\)[[:space:]]*\(.*\)/\1\$\2"/)
-   [ "$lockhost" = "" ] && break
-   if ! echo "${lockhost}" | grep -q "\$" ; then
-        continue
-   fi
-   hostname=$(echo "${lockhost}"|cut -d$ -f1)
-   rulename=""
-   if [ "$hostname" = "HOLIDAYS" -a "$blockname" = "Main" ]; then
-       holidays=$(echo "${lockhost}"|cut -d$ -f2)
-       j=1
-       until [ $j -lt 0 -o $j -gt 100 ]; do
-           if [ $j -gt 1 ]; then
-               echo "$holidays" | grep -q ","
-               [ $? -ne 0 ] && break
-           fi
-           holidayi=$(echo "$holidays" | cut -d, -f$j)
-           [ "$holidayi" = "" ] && break
-           holidayi1=$(echo "$holidayi" | cut -d- -f1)
-           holidayi2=""
-           if echo "$holidayi" | grep -q "-"; then
-                 holidayi2=$(echo "$holidayi" | cut -d- -f2)
-                 if [ $today -ge $holidayi1 -a $today -le $holidayi2 ]; then
-                     ruleClassName="holiday"
-                     break;
-                 fi
-           elif [ $today -eq $holidayi1 ]; then
-                 ruleClassName="holiday"
-                 break;
-           fi
-           j=$(expr $j + 1)
-       done
-       continue
-   elif [ "$hostname" = "CONFIG_URL" -a $# -gt 1 -a "$1" = "-u"  -a "$blockname" = "Main" ]; then
-       config_url=$(echo "${lockhost}" | cut -d$ -f2)
-       if wget -O $prefix/data/system/lockAppNet.conf.tmp  ${config_url}; then
-            mv $prefix/data/system/lockAppNet.conf.tmp $prefix/data/system/lockAppNet.conf
-       fi
-       exit
-   elif [ "$hostname" = "UPDATE_URL" -a $# -gt 1 -a "$1" = "-u"  -a "$blockname" = "Main" ]; then
-       local update_url=$(echo "${lockhost}" | cut -d$ -f2)
-       if wget -O $prefix/data/system/lockAppNet.tgz.tmp  ${update_url}; then
-            [ -w $prefix/system ] || mount -o remount,rw $prefix/system
-            cd /system
-            tar xzf $prefix/data/system/lockAppNet.tgz.tmp
-            rm $prefix/data/system/lockAppNet.tgz.tmp
-            [ -w $prefix/system ] && mount -o remount,ro /system
+     ntpServerIP=`getprop android.lockAppNet.ntpServerIP`
+
+
+     echo "$configLines" | while read Line; do
+        Line=$(echo "$Line" | sed "s/#.*$//g")
+        if echo "$Line" | grep -q "^[[:space:]]*#"; then
+             continue;
+        elif echo "$Line" | grep -q "^[[:space:]]*$"; then
+             continue;
         fi
-       exit
-   elif [ "$hostname" = "NTPSERVER" -a "$blockname" = "Main" -a "$ntpServerIP" = "" ]; then
-       ntpserver=$(echo "${lockhost}"|cut -d$ -f2)
-       local ntpserverip=$(getServerIP "$ntpserver" | tac | head -1)
-       setprop android.lockAppNet.ntpServerIP "$ntpserverip"
-       ntpServerIP=$ntpserverip
-       continue
-   elif [ "${hostname:0:13}" = "APP_WHITELIST"  -a "$blockname" = "Main" ]; then
-        [ -f $prefix/data/property/lockAppNet.whitelist ] && whitelist=$(cat $prefix/data/property/lockAppNet.whitelist)
-        [ "$whitelist" != "" ] && whitelist="${whitelist},"
-	[ _$(getprop lockAppNet.whitelist.imported) = _1 ] && remove $prefix/data/property/lockAppNet.whitelist
-        [ -f $prefix/data/property/lockAppNet.whitelist ] || touch $prefix/data/property/lockAppNet.whitelist
-        echo "$whitelist"$(echo "${lockhost}"|cut -d$ -f2) >> $prefix/data/property/lockAppNet.whitelist
-	setprop lockAppNet.whitelist.imported 1
-        #echo "- Apply: $Line"
-        continue
-   elif [ "$blockname" = "Network" ]; then
-   #######################################################
-       [ $time_synced -eq 1 ] && SyncTime
-
-       if echo "$hostname" | grep -q ":"; then
-           rulename=$(echo "$hostname" | cut -d\: -f1)
-           hostname=$(echo "$hostname" | cut -d\: -f2)
-       fi
-       skipme=0
-       if [ "$ruleClassName" = "" -o  "$ruleClassName" = "default" ]; then
-           [ "$rulename" != "" -a "$rulename" != "default" ] && skipme=1
-       elif [ "$ruleClassName" != "$rulename" ]; then
-           skipme=1
-       fi
-       if [ $skipme -eq 1 ]; then
-           echo "- Skip : $Line"
-           continue
-       fi
-       if [ $netlock -eq 0 ]; then
-            echo "- Disable Rule: $Line"
-       elif [ $netlock -eq 1 ]; then
-            echo "Apply Rule: $Line"
-       fi
-       plans=$(echo "${lockhost}"|cut -d$ -f2)
-       if [ "${hostname}" != "*" ]; then
-           if ! grep -q "127\.0\.0\.1.*${hostname}" ${hostsconfig}; then
-               [ -w $prefix/system ] || mount -o remount,rw $prefix/system
-               [ -f ${hostsconfig} ] || echo "" >> ${hostsconfig}
-               echo "127.0.0.1      ${hostname}" >> ${hostsconfig}
-           fi
-       fi
-       timeif=1
-       timeif=$(now_in_time "$plans")
-
-       globalNet=$(getprop lockAppNet.globalNet)
-       if [ $timeif -eq 1 -a $netlock -eq 1 ] ; then
-             if [ "${hostname}" != "*" ]; then
-                 if grep -q "^#.*${hostname}" ${hostsconfig}; then
-                     [ -w $prefix/system ] || mount -o remount,rw $prefix/system
-                     sed -e "s/#*\([^#]*${hostname}.*\)/\1/g" -i ${hostsconfig}
-                 fi
-                 echo "     $hostname===>disabled"
-             elif [ "$globalNet" != "1" -a "$globalNet" != "2" ]; then
-                 setprop lockAppNet.globalNet 1
-                 iptables -F
-                 iptables -P OUTPUT DROP
-                 iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-                 # allow DNS
-                 ##iptables -A OUTPUT -p udp -m udp --dport 53 -j ACCEPT
-                 iptables -A OUTPUT -p 17 -m udp --dport 53 -j ACCEPT
-                 # allow SNTP/NTP
-                 ##iptables -A OUTPUT -p udp -m udp --dport 123 -j ACCEPT
-                 ##iptables -A OUTPUT -p tcp -m tcp --dport 123 -j ACCEPT
-                 iptables -A OUTPUT -p 17 -m udp --dport 123 -j ACCEPT
-                 iptables -A OUTPUT -p 6 -m tcp --dport 123 -j ACCEPT
-                 # all rdate
-                 ##iptables -A OUTPUT -p udp -m udp --dport 37 -j ACCEPT
-                 ##iptables -A OUTPUT -p tcp -m tcp --dport 37 -j ACCEPT
-                 iptables -A OUTPUT -p 17 -m udp --dport 37 -j ACCEPT
-                 iptables -A OUTPUT -p 6 -m tcp --dport 37 -j ACCEPT
-                 # allow ping
-                 #iptables -A OUTPUT -p icmp --icmp-type 8 -j ACCEPT
-                 iptables -A OUTPUT -p 1 -j ACCEPT
-                 ApplyWhiteList
-                 echo "      **Network is disabled!"
-             fi
-        else
-             if [ "${hostname}" != "*" ]; then
-                 if ! grep -q "^#.*${hostname}" ${hostsconfig}; then
-                     [ -w $prefix/system ] || mount -o remount,rw $prefix/system
-                     sed -e "s/\([^#]*${hostname}.*\)/#\1/g" -i ${hostsconfig}
-                 fi
-                 echo "      $hostname===>enabled"
-             elif [ "$globalNet" != "1" -a "$globalNet" != "2" ]; then
-                 setprop lockAppNet.globalNet 2
-                 iptables -F
-                 iptables -P OUTPUT ACCEPT
-                 echo "      **Network is enabled!"
-             fi
+        if echo "$Line" |  grep -q "[[:space:]]*\[\{1,\}.*\]\{1,\}[[:space:]]*$"; then
+             blockname=$(echo "$Line"|sed "s/[[:space:]]*\[\{1,\}[[:space:]]*\(.*\)[[:space:]]*\]\{1,\}[[:space:]]*$/\1/")
+             continue;
         fi
-    elif  [ "$blockname" = "Application" ]; then
-    #################################################
-       [ $time_synced -eq 1 ] && SyncTime
-
-       appname=${hostname}
-       appuid=$(getAppUID $appname)
-       if [ $? -eq 1 -o "$appuid" = "" ]; then
-              continue
-       fi
-       k=0
-       uidcount=$(echo $appuid | grep -o "," | wc -l)
-       uidcount=$((uidcount + 1))
-       plans=$(echo "${lockhost}"|cut -d$ -f2)
-       timeif=1
-       until [ $k -ge $uidcount ]; do
-            uiditem=$(echo $appuid| cut -d, -f$uidcount)
-            timeif=$(now_in_time "$plans")
-
-            if [ "$timeif" = "1" -a $netlock -eq 1 ]; then
-                 iptables -D OUTPUT -m owner --uid-owner  $uiditem -j ACCEPT > /dev/null 2>/dev/null
-                 iptables -A OUTPUT -m owner --uid-owner  $uiditem -j REJECT
-                 echo "   --Disabled $appname"
-            else
-                 iptables -D OUTPUT -m owner --uid-owner  $uiditem -j REJECT > /dev/null 2>/dev/null
-                 iptables -A OUTPUT -m owner --uid-owner  $uiditem -j ACCEPT
-                 echo "   --Enabled $appname"
+        local lockhost=$(echo "$Line"|sed -e "s/\([[:graph:]]*\)[[:space:]]*\(.*\)/\1\$\2"/)
+        [ "$lockhost" = "" ] && break
+        if ! echo "${lockhost}" | grep -q "\$" ; then
+             continue
+        fi
+        local hostname=$(echo "${lockhost}"|cut -d$ -f1)
+        local rulename=""
+        if [ "$hostname" = "HOLIDAYS" -a "$blockname" = "Main" ]; then
+            local holidays=$(echo "${lockhost}"|cut -d$ -f2)
+            local j=1
+            until [ $j -lt 0 -o $j -gt 100 ]; do
+                if [ $j -gt 1 ]; then
+                    echo "$holidays" | grep -q ","
+                    [ $? -ne 0 ] && break
+                fi
+                local holidayi=$(echo "$holidays" | cut -d, -f$j)
+                [ "$holidayi" = "" ] && break
+                local holidayi1=$(echo "$holidayi" | cut -d- -f1)
+                local holidayi2=""
+                if echo "$holidayi" | grep -q "-"; then
+                      holidayi2=$(echo "$holidayi" | cut -d- -f2)
+                      if [ $today -ge $holidayi1 -a $today -le $holidayi2 ]; then
+                          ruleClassName="holiday"
+                          break;
+                      fi
+                elif [ $today -eq $holidayi1 ]; then
+                      ruleClassName="holiday"
+                      break;
+                fi
+                j=$(expr $j + 1)
+            done
+            continue
+        elif [ "$hostname" = "CONFIG_URL" -a $# -gt 1 -a "$1" = "-u"  -a "$blockname" = "Main" ]; then
+            local config_url=$(echo "${lockhost}" | cut -d$ -f2)
+            if wget -O $prefix/data/system/lockAppNet.conf.tmp  ${config_url}; then
+                 mv $prefix/data/system/lockAppNet.conf.tmp $prefix/data/system/lockAppNet.conf
             fi
+            exit
+        elif [ "$hostname" = "UPDATE_URL" -a $# -gt 1 -a "$1" = "-u"  -a "$blockname" = "Main" ]; then
+            local update_url=$(echo "${lockhost}" | cut -d$ -f2)
+            if wget -O $prefix/data/system/lockAppNet.tgz.tmp  ${update_url}; then
+                 [ -w $prefix/system ] || mount -o remount,rw $prefix/system
+                 cd /system
+                 tar xzf $prefix/data/system/lockAppNet.tgz.tmp
+                 rm $prefix/data/system/lockAppNet.tgz.tmp
+                 [ -w $prefix/system ] && mount -o remount,ro /system
+             fi
+            exit
+        elif [ "$hostname" = "NTPSERVER" -a "$blockname" = "Main" -a "$ntpServerIP" = "" ]; then
+            ntpserver=$(echo "${lockhost}"|cut -d$ -f2)
+            local ntpserverip=$(getServerIP "$ntpserver" | tac | head -1)
+            setprop android.lockAppNet.ntpServerIP "$ntpserverip"
+            ntpServerIP=$ntpserverip
+            continue
+        elif [ "$hostname" = "TIMEZONE" -a "$blockname" = "Main" ]; then
+            timezone=$(echo "${lockhost}"|cut -d$ -f2|sed "s/[[:space:]]*[+-]\{0,1\}[[:digit:]]\{1,2\}[[:space:]]*")
+            continue
+        elif [ "${hostname:0:13}" = "APP_WHITELIST"  -a "$blockname" = "Main" ]; then
+             whitelist="$whitelist"$(echo "${lockhost}"|cut -d$ -f2)
+             #echo "- Apply: $Line"
+             continue
+        elif [ "$blockname" = "Network" ]; then
+        #######################################################
+            [ $time_synced -eq 1 ] && SyncTime
+     
+            if echo "$hostname" | grep -q ":"; then
+                rulename=$(echo "$hostname" | cut -d\: -f1)
+                hostname=$(echo "$hostname" | cut -d\: -f2)
+            fi
+            skipme=0
+            if [ "$ruleClassName" = "" -o  "$ruleClassName" = "default" ]; then
+                [ "$rulename" != "" -a "$rulename" != "default" ] && skipme=1
+            elif [ "$ruleClassName" != "$rulename" ]; then
+                skipme=1
+            fi
+            if [ $skipme -eq 1 ]; then
+                echo "- Skip : $Line"
+                continue
+            fi
+            if [ $netlock -eq 0 ]; then
+                 echo "- Disable Rule: $Line"
+            elif [ $netlock -eq 1 ]; then
+                 echo "Apply Rule: $Line"
+            fi
+            local plans=$(echo "${lockhost}"|cut -d$ -f2)
+            if [ "${hostname}" != "*" ]; then
+                if ! grep -q "127\.0\.0\.1.*${hostname}" ${hostsconfig}; then
+                    [ -w $prefix/system ] || mount -o remount,rw $prefix/system
+                    [ -f ${hostsconfig} ] || echo "" >> ${hostsconfig}
+                    echo "127.0.0.1      ${hostname}" >> ${hostsconfig}
+                fi
+            fi
+            local timeif=1
+            timeif=$(now_in_time "$plans")
+     
+            globalNet=$(getprop lockAppNet.globalNet)
+            if [ $timeif -eq 1 -a $netlock -eq 1 ] ; then
+                  if [ "${hostname}" != "*" ]; then
+                      if grep -q "^#.*${hostname}" ${hostsconfig}; then
+                          [ -w $prefix/system ] || mount -o remount,rw $prefix/system
+                          sed -e "s/#*\([^#]*${hostname}.*\)/\1/g" -i ${hostsconfig}
+                      fi
+                      echo "     $hostname===>disabled"
+                  elif [ "$globalNet" != "1" -a "$globalNet" != "2" ]; then
+                      setprop lockAppNet.globalNet 1
+                      iptables -F
+                      iptables -P OUTPUT DROP
+                      iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+                      # allow DNS
+                      ##iptables -A OUTPUT -p udp -m udp --dport 53 -j ACCEPT
+                      iptables -A OUTPUT -p 17 -m udp --dport 53 -j ACCEPT
+                      # allow SNTP/NTP
+                      ##iptables -A OUTPUT -p udp -m udp --dport 123 -j ACCEPT
+                      ##iptables -A OUTPUT -p tcp -m tcp --dport 123 -j ACCEPT
+                      iptables -A OUTPUT -p 17 -m udp --dport 123 -j ACCEPT
+                      iptables -A OUTPUT -p 6 -m tcp --dport 123 -j ACCEPT
+                      # all rdate
+                      ##iptables -A OUTPUT -p udp -m udp --dport 37 -j ACCEPT
+                      ##iptables -A OUTPUT -p tcp -m tcp --dport 37 -j ACCEPT
+                      iptables -A OUTPUT -p 17 -m udp --dport 37 -j ACCEPT
+                      iptables -A OUTPUT -p 6 -m tcp --dport 37 -j ACCEPT
+                      # allow ping
+                      #iptables -A OUTPUT -p icmp --icmp-type 8 -j ACCEPT
+                      iptables -A OUTPUT -p 1 -j ACCEPT
+                      ApplyWhiteList
+                      echo "      **Network is disabled!"
+                  fi
+             else
+                  if [ "${hostname}" != "*" ]; then
+                      if ! grep -q "^#.*${hostname}" ${hostsconfig}; then
+                          [ -w $prefix/system ] || mount -o remount,rw $prefix/system
+                          sed -e "s/\([^#]*${hostname}.*\)/#\1/g" -i ${hostsconfig}
+                      fi
+                      echo "      $hostname===>enabled"
+                  elif [ "$globalNet" != "1" -a "$globalNet" != "2" ]; then
+                      setprop lockAppNet.globalNet 2
+                      iptables -F
+                      iptables -P OUTPUT ACCEPT
+                      echo "      **Network is enabled!"
+                  fi
+             fi
+         elif  [ "$blockname" = "Application" ]; then
+         #################################################
+            [ $time_synced -eq 1 ] && SyncTime
+     
+            local appname=${hostname}
+            local appuid=$(getAppUID $appname)
+            if [ $? -eq 1 -o "$appuid" = "" ]; then
+                   continue
+            fi
+            local k=0
+            local uidcount=$(echo $appuid | grep -o "," | wc -l)
+            uidcount=$((uidcount + 1))
+            local plans=$(echo "${lockhost}"|cut -d$ -f2)
+            local timeif=1
+            until [ $k -ge $uidcount ]; do
+                 local uiditem=$(echo $appuid| cut -d, -f$uidcount)
+                 timeif=$(now_in_time "$plans")
+     
+                 if [ "$timeif" = "1" -a $netlock -eq 1 ]; then
+                      iptables -D OUTPUT -m owner --uid-owner  $uiditem -j ACCEPT > /dev/null 2>/dev/null
+                      iptables -A OUTPUT -m owner --uid-owner  $uiditem -j REJECT
+                      echo "   --Disabled $appname"
+                 else
+                      iptables -D OUTPUT -m owner --uid-owner  $uiditem -j REJECT > /dev/null 2>/dev/null
+                      iptables -A OUTPUT -m owner --uid-owner  $uiditem -j ACCEPT
+                      echo "   --Enabled $appname"
+                 fi
+                 k=$(expr $k + 1)
+            done
+     
+         fi
+     
+     done
+     setprop lockAppNet.globalNet ""
+     #[ -w $prefix/system ] && mount -o remount,ro $prefix/system
+}
+
+##isOnTimeIF <mode> <now item> <crontab item>   
+isOnTime()
+{
+     [ $# -lt 3 ] && return 1
+     local mode=$1
+     local nnum=$2
+     local snum=$3
+     if echo "$snum" | grep -q '-'; then
+         local cnum1=$(echo "$snum" | cut -d- -f1)
+         local cnum2=$(echo "$snum" | cut -d- -f2)
+         if [ $nnum -ge $cnum1 -a $nnum -le $cnum2 ]; then
+               echo 0
+               return 0
+         else
+               echo 1
+               return 1
+         fi
+     elif echo "$snum" | grep -q ','; then
+         local ci=$(( $(echo "$snum" |  grep  -o ','| wc -l) + 1 ))
+         local k=1
+         local sif="1 -eq 1"
+         until [ $k -gt $ci ]; do
+            local cnumi=$(echo "$snum" | cut -d, -f1)
+            sif="$sif -o $nnum -eq $cnumi"
             k=$(expr $k + 1)
-       done
+         done
+         if [ $sif ]; then
+            echo 0
+            return 0
+         else
+               echo 1
+               return 1
+         fi
+     elif echo "$snum" | grep -q '\/'; then
+          local cnum2=$(echo "$snum" | cut -d/ -f2)
+          local len=1
+          if [ "$mode" = "minute" ]; then
+                  len=60
+          elif [ "$mode" = "hour" ]; then
+                  len=24
+          elif [ "$mode" = "day" ]; then
+                  len=31
+          elif [ "$mode" = "week" ]; then
+                  len=7
+          fi
+          
+          local m1=$(expr $nnum % $cnum2)
+          local m2=$(expr $len % $cnum2)
+          if [ $m1 -eq $m2 ]; then
+               echo 0
+               return 0
+          else
+               echo 1
+               return 1
+          fi
+      else
+          if [ "$snum" = "*" -o $snum -eq $nnum ]; then
+              echo 0
+              return 0
+          else
+              echo 1
+              return 1
+          fi  
+      fi 
+      echo 1
+      return 1
+}
+lockAppNetCrond()
+{
+    local t1=0
+    local t2=$(getLocalTime)
+    until [ 1 -eq 2 ]; do
+          [ -f "$crontabfile" ] || continue
+          local crontabs=$(cat $crontabfile)
+          t1=$t2
+          sleep 180
+          t2=$(getLocalTime)
+          local minute=$(date +%M -d "@$t2")
+          local hour=$(date +%H -d "@$t2")
+          local day=$(date +%m -d "@$t2")
+          local weekday=$(date +%w -d "@$t2")
+          local dt=$(expr $t2 - $t1)
+          if [ $dt -gt 200 -a $dt -lt -200 ]; then
+               echo ": time disparity of $dt minutes detected!"
+               SyncTime
+               lockAppNetRun
+          else
+               echo "$crontabs" | while read Line;do
+                     Line=$(echo "$Line" | sed "s/#.*$//g")
+                     if echo "$Line" | grep -q "^[[:space:]]*#"; then
+                          continue;
+                     elif echo "$Line" | grep -q "^[[:space:]]*$"; then
+                          continue;
+                     fi
+                     Line=$(echo $Line | sed -e "s/[[:space:]]\{1,\}/ /g" -e "s/^[[:space:]]\{1,\}//g" -e "s/[[:space:]]\{1,\}$//g")
+                     local csmin=$(echo $Line | cut -d' ' -f1)
+                     local cshour=$(echo $Line | cut -d' ' -f2)
+                     local csday=$(echo $Line | cut -d' ' -f3)
+                     local csweek=$(echo $Line | cut -d' ' -f4)
+                     local cscmd=$(echo $Line | cut -d' ' -f5)
+                     [ "$csmin" = "" -o "$cshour" = "" -o "$csday" = "" -o "$csweek" = "" -o "$cscmd" = "" ] && continue
+                     if [ "$csweek" != "*" ] ; then
+                           csday="*"
+                     elif [ "$csday" != "*" ]; then
+                           csweek="*"
+                     fi
 
-    fi
-
-done
-setprop lockAppNet.globalNet ""
-setprop lockAppNet.conf.block ""
-setprop android.lockAppNet.pid ""
-setProp lockAppNet.whitelist
-
-#[ -w $prefix/system ] && mount -o remount,ro $prefix/system
-
+                     local ifmin=$(isOnTime "minute" "$minute" "$csmin")
+                     local ifhour=$(isOnTime "hour" "$hour" "$cshour")
+                     local ifday=$(isOnTime "day" "$day" "$csday")
+                     local ifweek=$(isOnTime "week" "$weekday" "$csweek")
+                     if [ $ifmin -eq 0 -a $ifhour -eq 0 -a $ifday -eq 0 -a $ifweek -eq 0 ]; then
+                           lockAppNetRun
+                     fi                      
+                     ######################
+               done
+          fi
+    done  
+}
+##====================  main  ================
+lockAppNetRun
+if [ $# -ge 1 ]; then
+   [ "$1" = "-d" ] && lockAppNetCrond
+fi
 
 exit 0
