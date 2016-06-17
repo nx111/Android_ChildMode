@@ -192,6 +192,7 @@ mkcrontab()
   	local vhour="$2"
   	local vmin="$3"
         local vcommand="$4"
+        local line=""
         [ "$vcommand" = "" ] && vcommand="$0"
         [ "$vday" = "" ] && vday="*"
         [ "$vhour" = "" ] && vhour="*"
@@ -199,20 +200,21 @@ mkcrontab()
         [ "$vday" = "*" -a "$vhour" = "*" -a "$vmin" = "*" ] && return
         local newitem="$vmini\s\{1,\}$vhour\s\{1,\}*\s\{1\}*\s\{1,\}\S\{1,\}\s\{1,\}$0"
         local items=$(echo "$newitem" | sed -e "s/\*/\\\*/g" -e "s/\//\\//g")
-        if ! grep  -q "$items" $crontabfile; then
-             crontabs="$crontabs\n$vmin	$vhour	*	*	$vday	$0"
+        if ! echo "$crontabs" | grep  -q "$items" ; then
+             line="$vmin	$vhour	*	*	$vday	$0"
         elif [ "$vday" = "*" ]; then
              newitem="\($vmin[[:space:]]+$vhour[[:space:]]+*[[:space:]]+*[[:space:]]+\)[^*]+\([[:space:]]+$0\)"
              items=$(echo "$newitem" | sed -e "s/\*/\\\*/g" -e "s/\//\\//g")
-             crontabls="$crontabls\n"$(echo -n "$crontabls" | sed -e "s/$items/\1\*\2/g")
+             line=$(echo -n "$crontabls" | sed -e "s/$items/\1\*\2/g")
         elif [ "$vday" != "*" ]; then
              newitem="$vmini\s\{1,\}$vhour\s\{1,\}*\s\{1\}*\s\{1,\}*\s\{1,\}$0"
              items=$(echo "$newitem" | sed -e "s/\*/\\\*/g" -e "s/\//\\//g")
              if ! (echo $crontabs | grep -q "$items"); then
-                   crontabs="$crontabs\n$vmin        $vhour  *       *       $vday   $0"
+                   line="$vmin        $vhour  *       *       $vday   $0"
              fi
         fi
-       #echo "$crontabs" > $crontabfile
+        crontabs="${crontabs}\n${line}"
+        #echo "$line" >> $crontabfile
 }
 now_in_time()
 {
@@ -692,16 +694,17 @@ lockAppNetCrond()
     local t1=0
     local t2=$(getLocalTime)
     until [ 1 -eq 2 ]; do
-          local debug=$(getprop android.lockAppNet.debug)
-          if [ "$debug" = "1" ]; then
-             OUTPUT=$LOGFILE
-             [ ! -f $OUTPUT ] && touch $OUTPUT
-             > $OUTPUT
-          else
-             OUTPUT="/dev/tty"
+          local ndebug=$(getprop android.lockAppNet.debug)
+          if [ "$ndebug" != "$debug" ]; then
+              if [ "$ndebug" = "1" ]; then
+                 OUTPUT=$LOGFILE
+                 remove "$LOGFILE"
+                 touch $OUTPUT
+              else
+                 OUTPUT="/dev/tty"
+              fi
+              debug=$ndebug
           fi
-          [ -f "$crontabfile" ] || continue
-          local crontabs=$(cat $crontabfile)
           [ $time_synced -ne -1 ] && t1=$t2
           sleep $sleeptime
           t2=$(getLocalTime)
@@ -710,7 +713,7 @@ lockAppNetCrond()
           local day=$(date +%m -d "@$t2")
           local weekday=$(date +%w -d "@$t2")
           local dt=$(expr $t2 - $t1)
-          if [ $dt -gt $(expr 600 + $sleeptime) -o $dt -lt $(expr -600 - $sleeptime) ]; then
+          if [ $dt -gt $(expr 300 + $sleeptime) -o $dt -lt $(expr -300 - $sleeptime) ]; then
                echo ":: time disparity of $dt seconds detected!" >> $OUTPUT
                SyncTime >> $OUTPUT
                sleep 10
@@ -755,14 +758,14 @@ lockAppNetCrond()
 }
 ##====================  main  ================
 if [ "$debug" = "1" ]; then
-     OUTPUT=$LOGFILE
+     OUTPUT="$LOGFILE"
      echo "## OUTPUT redirect to $OUTPUT!"
-     [ ! -f $OUTPUT ] && touch $OUTPUT
+     [ ! -f "$OUTPUT" ] && touch "$OUTPUT"
 else
      OUTPUT="/dev/tty"
 fi
                                                                                
-lockAppNetRun >> $OUTPUT
+lockAppNetRun > $OUTPUT
 [ $daemon -eq 1 ] && lockAppNetCrond
 
 exit 0
