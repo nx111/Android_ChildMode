@@ -52,23 +52,6 @@ timezone=
 sleeptime=60
 [ -f $configfile ] && configLines=$(cat $configfile)
 
-#check network lock is opened,if opened,do not disable network
-netlock=`getprop android.network.lockAppNet`
-if [  "$netlock" = "" ]; then
-      netlock=1
-      setprop android.network.lockAppNet 1
-elif [ "$netlock" = "0" ]; then
-      local offtime=`getprop android.lockAppNet.offtime`
-      if [ "$offtime" != "" ]; then
-          local nowtime=`date +%s`
-          local timediff=$(($nowtime - $offtime))
-          if [ $timediff -ge 3600 -o $timediff -lt 0 ]; then
-               setprop android.lockAppNet.offtime ""
-               setprop android.network.lockAppNet 1
-               netlock=1
-          fi
-      fi
-fi
 
 if [ ! -d "$(dirname $crontabfile)" ]; then
 	mkdir $(dirname $crontabfile)
@@ -426,6 +409,27 @@ SyncTime()
         return 1
     fi
 }
+
+check_netlock()
+{
+          #check network lock is opened,if opened,do not disable network
+          netlock=`getprop android.network.lockAppNet`
+          if [  "$netlock" = "" ]; then
+              netlock=1
+              setprop android.network.lockAppNet 1
+          elif [ "$netlock" = "0" ]; then
+              local offtime=`getprop android.lockAppNet.offtime`
+              if [ "$offtime" != "" ]; then
+                  local nowtime=`date +%s`
+                  local timediff=$(($nowtime - $offtime))
+                  if [ $timediff -ge 3600 -o $timediff -lt 0 ]; then
+                       setprop android.lockAppNet.offtime ""
+                       setprop android.network.lockAppNet 1
+                       netlock=1
+                  fi
+              fi
+          fi
+}
 ###############################################################
 lockAppNetRun()
 {
@@ -436,6 +440,8 @@ lockAppNetRun()
      local globalNet=0
      echo "   Time: $(getLocalTime +%H:%M:%S)"
      echo "==========================================="
+     check_netlock
+
      echo "$configLines" | while read Line; do
         Line=$(echo "$Line" | sed "s/#.*$//g")
         if echo "$Line" | grep -q "^[[:space:]]*#"; then
@@ -693,6 +699,7 @@ lockAppNetCrond()
 {
     local t1=0
     local t2=$(getLocalTime)
+    local onetlock=""
     until [ 1 -eq 2 ]; do
           local ndebug=$(getprop android.lockAppNet.debug)
           if [ "$ndebug" != "$debug" ]; then
@@ -705,6 +712,7 @@ lockAppNetCrond()
               fi
               debug=$ndebug
           fi
+          check_netlock
           [ $time_synced -ne -1 ] && t1=$t2
           sleep $sleeptime
           t2=$(getLocalTime)
@@ -713,10 +721,16 @@ lockAppNetCrond()
           local day=$(date +%m -d "@$t2")
           local weekday=$(date +%w -d "@$t2")
           local dt=$(expr $t2 - $t1)
-          if [ $dt -gt $(expr 300 + $sleeptime) -o $dt -lt $(expr -300 - $sleeptime) ]; then
-               echo ":: time disparity of $dt seconds detected!" >> $OUTPUT
-               SyncTime >> $OUTPUT
-               sleep 10
+          local time_disparity=1
+          [ $dt -gt $(expr 300 + $sleeptime) -o $dt -lt $(expr -300 - $sleeptime) ] && time_disparity=0
+          if [ $time_disparity -eq 0 -o "$onetlock" != "$netlock" ]; then
+               if [ $time_disparity -eq 0 ]; then
+                    echo ":: time disparity of $dt seconds detected!" >> $OUTPUT
+                    SyncTime >> $OUTPUT
+                    sleep 10
+               elif [ "$onetlock" != "$netlock" ]; then
+                     onetlock=$netlock
+               fi
                lockAppNetRun >> $OUTPUT
           else
                echo "$crontabs" | while read Line;do

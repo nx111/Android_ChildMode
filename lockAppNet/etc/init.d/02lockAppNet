@@ -16,5 +16,5 @@ fi
 [ $remounted -eq 0 ] && mount -o remount,ro /system
 
 [ -f /system/etc/lockAppNet.conf ] || exit 0
-/system/bin/sh /system/bin/lockAppNet -d
+/system/bin/sh /system/bin/lockAppNet -d &
 

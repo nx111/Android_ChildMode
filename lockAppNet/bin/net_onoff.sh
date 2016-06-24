@@ -11,5 +11,6 @@ else
    setprop android.lockAppNet.offtime `date +%s`
    echo "...... disable lockAppNet......"
 fi
-[ -x /system/bin/lockAppNet ] && /system/bin/lockAppNet
+
+[ -x /system/bin/lockAppNet -a "$(getprop android.lockAppNet.pid)" = "" ] && /system/bin/lockAppNet
 
