@@ -787,4 +787,5 @@ fi
 lockAppNetRun > $OUTPUT
 [ $daemon -eq 1 ] && lockAppNetCrond
 
+setprop android.lockAppNet.pid ""
 exit 0
