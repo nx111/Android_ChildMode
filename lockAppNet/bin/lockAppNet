@@ -215,11 +215,14 @@ now_in_time()
     #           echo "$plans" | grep -q ","
     #           [ $? -ne 0 ] && break
     #        fi
-            local plani=$(echo "$plans"|cut -d';' -f$j)
+            local plani=$(echo "$plans"|cut -d';' -f$j | sed -e "s/[[:space:]]\{1,\} $//g" -e "s/^[[:space:]]\{1,\}//g" -e "s/[[:space:]]/ /g" -e "s/ \{2,\}/ /g")
             [ "$plani" = "" ] && break;
-            local plan_time=$(echo "$plani"|sed -e "s/ \{2,\}/ /g"|cut -d' ' -f1)
-            local plan_day=$(echo "$plani"|sed -e "s/ \{2,\}/ /g"|cut -d' ' -f2)
-            local plan_opt=$(echo "$plani"|sed -e "s/ \{2,\}/ /g"|cut -d' ' -f3)
+            local plani_item_count=$(( $(echo "$plani" | grep  -o ';'| wc -l) + 1 ))
+            local plan_time=$(echo "$plani"|cut -d' ' -f1)
+            local plan_day=$(echo "$plani"|cut -d' ' -f2)
+            local plan_opt=$(echo "$plani"|cut -d' ' -f3)
+            [ $plani_item_count -lt 2 ] && plan_day="*"
+            [ $plani_item_count -lt 3 ] && plan_opt=""
             local ptime1=""
             local ptime2=""
 	    local ptime1_hour=""
@@ -336,7 +339,8 @@ getServerIP()
 {
     [ $# -lt 1 ] && return
     if [ -f /proc/net/stat/arp_cache ]; then
-        local num=$(cat /proc/net/stat/arp_cache | cut -d' ' -f1 | sed -n '2p')
+        local num;
+        ((num=16#$(cat /proc/net/stat/arp_cache | cut -d' ' -f1 | sed -n '2p')))
         [ 0$num -lt 1 ] && return 
     fi
     local j=1
@@ -364,7 +368,8 @@ getServerIP()
 SyncTime()
 {
     if [ -f /proc/net/stat/arp_cache ]; then
-            local num=$(cat /proc/net/stat/arp_cache | cut -d' ' -f1 | sed -n '2p')
+            local num;
+            ((num=16#$(cat /proc/net/stat/arp_cache | cut -d' ' -f1 | sed -n '2p')))
             if [ 0$num -lt 1 ]; then
                   time_synced=-1
                   return
