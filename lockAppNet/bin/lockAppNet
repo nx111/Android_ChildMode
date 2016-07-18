@@ -25,12 +25,10 @@ if [ $# -ge 1 ]; then
     done
 fi
 lockAppNetPID=$(getprop android.lockAppNet.pid)
-if [ "$lockAppNetPID" != "" ]; then
-    if ps | grep -q "[[:print:]]\{1,\}[[:space:]]\{1,\}${lockAppNetPID}[[:space:]]\{1,\}"; then
+if [ "$lockAppNetPID" != "" -a -d /proc/$lockAppNetPID ]; then
         echo "Warnning: $0 already is running(PID=$lockAppNetPID),exit now!"
         [ $# -gt 1 -a "$1" = "-debug" ] && setprop android.lockAppNet.debug 1
         exit 1
-    fi
 fi
 
 echo "--------------------------------------"
@@ -426,12 +424,25 @@ check_netlock()
               local offtime=`getprop android.lockAppNet.offtime`
               if [ "$offtime" != "" ]; then
                   local nowtime=`date +%s`
-                  local timediff=$(($nowtime - $offtime))
-                  if [ $timediff -ge 3600 -o $timediff -lt 0 ]; then
-                       setprop android.lockAppNet.offtime ""
-                       setprop android.network.lockAppNet 1
-                       netlock=1
-                  fi
+                  local offtos=`getprop android.lockAppNet.offto`
+                  if [ "$offto" = "" ]; then 
+                      local timediff=$(($nowtime - $offtime))
+                      if [ $timediff -ge 3600 -o $timediff -lt 0 ]; then
+                            setprop android.lockAppNet.offtime ""
+                            setprop android.network.lockAppNet 1
+                            netlock=1
+                      fi
+                   else
+                        nowtime=$(getLocalTime +%s)
+                        local offto=$(getLocalTime +%s $offtos)
+                        local timediff=$(($nowtime - $offto))
+                        if [ $timediff -ge 0 ]; then
+                             setprop android.lockAppNet.offtime ""
+                             setprop android.network.lockAppNet 1
+                             setprop android.lockAppNet.offto ""
+                             netlock=1
+                        fi
+                   fi
               fi
           fi
 }
@@ -636,6 +647,7 @@ lockAppNetRun()
          fi
      
      done
+     echo ""
      setprop lockAppNet.globalNet ""
      #[ -w $prefix/system ] && mount -o remount,ro $prefix/system
 }
@@ -723,6 +735,7 @@ lockAppNetCrond()
               fi
               debug=$ndebug
           fi
+          onetlock=$netlock
           check_netlock
           [ $time_synced -ne -1 ] && t1=$t2
           sleep $sleeptime
