@@ -16,5 +16,7 @@ fi
 [ $remounted -eq 0 ] && mount -o remount,ro /system
 
 [ -f /system/etc/lockAppNet.conf ] || exit 0
+
+setprop android.lockAppNet.debug ""
 /system/bin/sh /system/bin/lockAppNet -d &
 

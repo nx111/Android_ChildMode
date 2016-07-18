@@ -48,14 +48,13 @@ ntpserver="stdtime.gov.hk"
 ntpServerIP=
 dns="114.114.114.114"
 time_synced=1
-timezone=
+timezone="+8"
 sleeptime=60
 [ -f $configfile ] && configLines=$(cat $configfile)
 
 
 if [ ! -d "$(dirname $crontabfile)" ]; then
-	mkdir $(dirname $crontabfile)
-	mkdir $crontabs
+	mkdir -p $(dirname $crontabfile)
 fi
 
 #############################################################
@@ -92,7 +91,8 @@ getLocalTime()
     if [ "$timezone" = "" ]; then
         result=$utc
     else
-        result=$((expr $utc + $timezone))
+        #expr $utc + $timezone \* 3600
+        result=$(expr $utc + $timezone \* 3600)
     fi
     if [ $haveFMT -eq 0 ]; then
         echo "$result"
@@ -448,7 +448,7 @@ lockAppNetRun()
      check_netlock
 
      echo "$configLines" | while read Line; do
-        Line=$(echo "$Line" | sed "s/#.*$//g")
+        Line=$(echo "$Line" | sed -e "s/#.*$//g" -e "s/^[[:space:]]\{1,\}//g" -e "s/[[:space:]]\{1,\}$//g")
         if echo "$Line" | grep -q "^[[:space:]]*#"; then
              continue;
         elif echo "$Line" | grep -q "^[[:space:]]*$"; then
@@ -458,13 +458,14 @@ lockAppNetRun()
              blockname=$(echo "$Line"|sed "s/[[:space:]]*\[\{1,\}[[:space:]]*\(.*\)[[:space:]]*\]\{1,\}[[:space:]]*$/\1/")
              continue;
         fi
-        local lockhost=$(echo "$Line"|sed -e "s/\([[:graph:]]*\)[[:space:]]*\(.*\)/\1\$\2"/)
+        local lockhost=$(echo "$Line"|sed -e "s/[[:space:]]*\([[:graph:]]\{1,\}\)[[:space:]=]\{1,\}\(.*\)/\1\$\2/" )
         [ "$lockhost" = "" ] && break
         if ! echo "${lockhost}" | grep -q "\$" ; then
              continue
         fi
         local hostname=$(echo "${lockhost}"|cut -d$ -f1)
         local rulename=""
+        
         if [ "$hostname" = "HOLIDAYS" -a "$blockname" = "Main" ]; then
             local holidays=$(echo "${lockhost}"|cut -d$ -f2)
             local j=1
@@ -512,7 +513,10 @@ lockAppNetRun()
             ntpServerIP=$ntpserverip
             continue
         elif [ "$hostname" = "TIMEZONE" -a "$blockname" = "Main" ]; then
-            timezone=$(echo "${lockhost}"|cut -d$ -f2|sed "s/[[:space:]]*[+-]\{0,1\}[[:digit:]]\{1,2\}[[:space:]]*")
+            timezone=$(echo "${lockhost}"|cut -d$ -f2 | sed "s/[[:space:]]*\([+-]\{0,1\}[[:digit:]]\{1,2\}\)[[:space:]]*/\1/")
+            #echo "Timezone=$timezone   Now: $(getLocalTime +%H:%M:%S)"
+            time=$(getLocalTime +%s)
+            timeinday=$(( $time % 86400 ))                                                                         
             continue
         elif [ "${hostname:0:13}" = "APP_WHITELIST"  -a "$blockname" = "Main" ]; then
              whitelist="$whitelist"$(echo "${lockhost}"|cut -d$ -f2)
@@ -527,6 +531,7 @@ lockAppNetRun()
                 hostname=$(echo "$hostname" | cut -d\: -f2)
             fi
             skipme=0
+            
             if [ "$ruleClassName" = "" -o  "$ruleClassName" = "default" ]; then
                 [ "$rulename" != "" -a "$rulename" != "default" ] && skipme=1
             elif [ "$ruleClassName" != "$rulename" ]; then
@@ -709,11 +714,12 @@ lockAppNetCrond()
           local ndebug=$(getprop android.lockAppNet.debug)
           if [ "$ndebug" != "$debug" ]; then
               if [ "$ndebug" = "1" ]; then
-                 OUTPUT=$LOGFILE
+                 OUTPUTFILE=$LOGFILE
                  remove "$LOGFILE"
-                 touch $OUTPUT
+                 touch $OUTPUTFILE
+                 OUTPUT=" >> $OUTPUTFILE"
               else
-                 OUTPUT="/dev/tty"
+                 OUTPUT=""
               fi
               debug=$ndebug
           fi
@@ -730,13 +736,13 @@ lockAppNetCrond()
           [ $dt -gt $(expr 300 + $sleeptime) -o $dt -lt $(expr -300 - $sleeptime) ] && time_disparity=0
           if [ $time_disparity -eq 0 -o "$onetlock" != "$netlock" ]; then
                if [ $time_disparity -eq 0 ]; then
-                    echo ":: time disparity of $dt seconds detected!" >> $OUTPUT
-                    SyncTime >> $OUTPUT
+                    eval echo ":: time disparity of $dt seconds detected!" $OUTPUT
+                    eval SyncTime $OUTPUT
                     sleep 10
                elif [ "$onetlock" != "$netlock" ]; then
                      onetlock=$netlock
                fi
-               lockAppNetRun >> $OUTPUT
+               eval lockAppNetRun $OUTPUT
           else
                echo "$crontabs" | while read Line;do
                      Line=$(echo "$Line" | sed "s/#.*$//g")
@@ -766,8 +772,8 @@ lockAppNetCrond()
                      isOnTimeIF "week" "$weekday" "$csweek"
                      local ifweek=$?
                      if [ $ifmin -eq 0 -a $ifhour -eq 0 -a $ifday -eq 0 -a $ifweek -eq 0 ]; then
-                           echo "Cron Task running: $Line" >> $OUTPUT
-                           lockAppNetRun >> $OUTPUT
+                           eval echo "Cron Task running: $Line" $OUTPUT
+                           eval lockAppNetRun $OUTPUT
                      fi 
                      ######################
                done
@@ -777,14 +783,15 @@ lockAppNetCrond()
 }
 ##====================  main  ================
 if [ "$debug" = "1" ]; then
-     OUTPUT="$LOGFILE"
-     echo "## OUTPUT redirect to $OUTPUT!"
-     [ ! -f "$OUTPUT" ] && touch "$OUTPUT"
+     OUTPUTFILE="$LOGFILE"
+     echo "## OUTPUT redirect to $OUTPUTFILE!"
+     [ ! -f "$OUTPUTFILE" ] && touch "$OUTPUTFILE"
+     OUTPUT=" >> $OUTPUTFILE"
 else
-     OUTPUT="/dev/tty"
+     OUTPUT=""
 fi
                                                                                
-lockAppNetRun > $OUTPUT
+eval lockAppNetRun $OUTPUT
 [ $daemon -eq 1 ] && lockAppNetCrond
 
 setprop android.lockAppNet.pid ""
