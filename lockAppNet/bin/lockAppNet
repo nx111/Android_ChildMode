@@ -35,10 +35,66 @@ echo "--------------------------------------"
 echo "   user: `whoami`   PID: $$"
 setprop android.lockAppNet.pid $$
 ##############################################################
+
+getTimeInDay()
+{
+        [ "$timezone" = "" ] timezone=$(date +%z)
+        local hourzone=${timezone:1:2}
+        local minzone=${timezone:3:2}
+        local signzone=${timezone:0:1}
+        local utc=$(date +%s)
+        result=$(expr $result $signzone $hourzone \* 3600 $signzone $minzone \* 60)
+        result=$(expr $result % 86400)
+        echo $result
+        return 0
+}
+
+getLocalTime()
+{
+    local notNow=0
+    local timeinput=""
+    local FMT=""
+    for opt in $*;do
+        if [ "$opt" = "-d" ]; then
+             notNow=1
+        elif [ $notNow -eq 1 ]; then
+             timeinput=$opt
+             notNow=0
+        else
+             FMT="$FMT $opt"
+             notNow=0
+        fi
+    done
+    local utc=0
+    local result=""
+    if [ "$timeinput" = "" ]; then
+         utc=$(date +%s)
+    else
+         utc=$(date +%s -d $timeinput)
+    fi
+
+    local datezone=$(date +%z)
+    if [ "$timezone" = "" -o "${datezone:0:${#timezone}}" = "$timezone" ]; then
+        result=$utc
+    else
+        local hourzone=${datezone:1:2}
+        local minzone=${datezone:3:2}
+        local signzone=${datezone:0:1}
+        result=$(expr $utc $signzone $hourzone \* 3600 $signzone $minzone \* 60)
+        hourzone=${timezone:1:2}
+        minzone=${timezone:3:2}
+        signzone=${timezone:0:1}
+        result=$(expr $result $signzone $hourzone \* 3600 $signzone $minzone \* 60)
+    fi
+
+    date $FMT -d "@$result"
+    return 0
+}
+###################################################################
 day=`date +%u`
 today=`date +%m%d`
 time=$(( $(date +%s) $(date +%z|cut -c 1)  $(($(date +%z|cut -c 2)*3600+$(date +%z|cut -c 3)*3600+$(date +%z|cut -c 4)*600+$(date +%z|cut -c 5)*60)) ))
-timeinday=$(($time % 86400))
+timeinday=$((time & 86400))
 nextmorning=$((6*3600))
 readonly=0
 [ -w $prefix/system ] && readonly=1
@@ -46,7 +102,7 @@ ntpserver="stdtime.gov.hk"
 ntpServerIP=
 dns="114.114.114.114"
 time_synced=1
-timezone="+8"
+timezone="+0800"
 sleeptime=60
 [ -f $configfile ] && configLines=$(cat $configfile)
 
@@ -75,30 +131,7 @@ if ! which cut >/dev/null; then
    errorflag=1
 fi
 
-getLocalTime()
-{
-    local haveFMT=0
-    for opt in $*;do
-        if [ "${opt:0:2}" = "+%" -a "$opt" != "+%s" ]; then
-           haveFMT=1
-           break
-        fi
-    done
-    local utc=$(date +%s)
-    local result=""
-    if [ "$timezone" = "" ]; then
-        result=$utc
-    else
-        #expr $utc + $timezone \* 3600
-        result=$(expr $utc + $timezone \* 3600)
-    fi
-    if [ $haveFMT -eq 0 ]; then
-        echo "$result"
-    else
-        date $* -d "@$result"
-    fi
-    return 0
-}
+
 
 remove()
 {
@@ -420,30 +453,30 @@ check_netlock()
           if [  "$netlock" = "" ]; then
               netlock=1
               setprop android.network.lockAppNet 1
-          elif [ "$netlock" = "0" ]; then
-              local offtime=`getprop android.lockAppNet.offtime`
-              if [ "$offtime" != "" ]; then
-                  local nowtime=`date +%s`
-                  local offtos=`getprop android.lockAppNet.offto`
-                  if [ "$offto" = "" ]; then 
-                      local timediff=$(($nowtime - $offtime))
-                      if [ $timediff -ge 3600 -o $timediff -lt 0 ]; then
-                            setprop android.lockAppNet.offtime ""
-                            setprop android.network.lockAppNet 1
-                            netlock=1
-                      fi
-                   else
-                        nowtime=$(getLocalTime +%s)
-                        local offto=$(getLocalTime +%s $offtos)
-                        local timediff=$(($nowtime - $offto))
-                        if [ $timediff -ge 0 ]; then
-                             setprop android.lockAppNet.offtime ""
-                             setprop android.network.lockAppNet 1
-                             setprop android.lockAppNet.offto ""
-                             netlock=1
-                        fi
-                   fi
-              fi
+          fi
+
+          local offtime=`getprop android.lockAppNet.offtime`
+          if [ "$offtime" != "" ]; then
+               local nowtime=`date +%s`
+               local offtos=`getprop android.lockAppNet.offto`
+               if [ "$offtos" = "" ]; then
+                    local timediff=$(($nowtime - $offtime))
+                    if [ $timediff -ge 3600 -o $timediff -lt 0 ]; then
+                         setprop android.lockAppNet.offtime ""
+                         setprop android.network.lockAppNet 1
+                         netlock=1
+                    fi
+                else
+                    nowtime=$(getLocalTime +%s)
+                    local offto=$(date +%s -d $offtos)
+                    local timediff=$(($nowtime - $offto))
+                    if [ $timediff -ge 0 ]; then
+                          setprop android.lockAppNet.offtime ""
+                          setprop android.network.lockAppNet 1
+                          setprop android.lockAppNet.offto ""
+                          netlock=1
+                     fi
+                fi
           fi
 }
 ###############################################################
@@ -456,7 +489,7 @@ lockAppNetRun()
      local globalNet=0
      echo "   Time: $(getLocalTime +%H:%M:%S)"
      echo "==========================================="
-     check_netlock
+     [ "$fromCrond" != "1" ] && check_netlock
 
      echo "$configLines" | while read Line; do
         Line=$(echo "$Line" | sed -e "s/#.*$//g" -e "s/^[[:space:]]\{1,\}//g" -e "s/[[:space:]]\{1,\}$//g")
@@ -524,10 +557,9 @@ lockAppNetRun()
             ntpServerIP=$ntpserverip
             continue
         elif [ "$hostname" = "TIMEZONE" -a "$blockname" = "Main" ]; then
-            timezone=$(echo "${lockhost}"|cut -d$ -f2 | sed "s/[[:space:]]*\([+-]\{0,1\}[[:digit:]]\{1,2\}\)[[:space:]]*/\1/")
+            timezone=$(echo "${lockhost}"|cut -d$ -f2 | sed "s/[[:space:]]*\([+-]\{0,1\}[[:digit:]]\{1,4\}\)[[:space:]]*/\1/")
             #echo "Timezone=$timezone   Now: $(getLocalTime +%H:%M:%S)"
-            time=$(getLocalTime +%s)
-            timeinday=$(( $time % 86400 ))                                                                         
+            timeinday=$(getTimeInDay)
             continue
         elif [ "${hostname:0:13}" = "APP_WHITELIST"  -a "$blockname" = "Main" ]; then
              whitelist="$whitelist"$(echo "${lockhost}"|cut -d$ -f2)
@@ -536,12 +568,13 @@ lockAppNetRun()
         elif [ "$blockname" = "Network" ]; then
         #######################################################
             [ $time_synced -eq 1 ] && SyncTime
-     
+
+            local rulename=$ruleClassName
             if echo "$hostname" | grep -q ":"; then
                 rulename=$(echo "$hostname" | cut -d\: -f1)
                 hostname=$(echo "$hostname" | cut -d\: -f2)
             fi
-            skipme=0
+            local skipme=0
             
             if [ "$ruleClassName" = "" -o  "$ruleClassName" = "default" ]; then
                 [ "$rulename" != "" -a "$rulename" != "default" ] && skipme=1
@@ -619,10 +652,28 @@ lockAppNetRun()
             [ $time_synced -eq 1 ] && SyncTime
      
             local appname=${hostname}
+            local rulename=$ruleClassName
+            if echo "$hostname" | grep -q ":"; then
+                rulename=$(echo "$hostname" | cut -d\: -f1)
+                appname=$(echo "$hostname" | cut -d\: -f2)
+            fi
+            local skipme=0
+
+            if [ "$ruleClassName" = "" -o  "$ruleClassName" = "default" ]; then
+                [ "$rulename" != "" -a "$rulename" != "default" ] && skipme=1
+            elif [ "$ruleClassName" != "$rulename" ]; then
+                skipme=1
+            fi
+            if [ $skipme -eq 1 ]; then
+                echo " -  Skip : $Line"
+                continue
+            fi
+
             local appuid=$(getAppUID $appname)
             if [ $? -eq 1 -o "$appuid" = "" ]; then
                    continue
             fi
+
             local k=0
             local uidcount=$(echo $appuid | grep -o "," | wc -l)
             uidcount=$((uidcount + 1))
@@ -719,9 +770,10 @@ isOnTimeIF()
 }
 lockAppNetCrond()
 {
+    fromCrond=1
     local t1=0
-    local t2=$(getLocalTime)
-    local onetlock=""
+    local t2=$(getLocalTime +%s)
+    local onetlock="$netlock"
     until [ 1 -eq 2 ]; do
           local ndebug=$(getprop android.lockAppNet.debug)
           if [ "$ndebug" != "$debug" ]; then
@@ -735,11 +787,10 @@ lockAppNetCrond()
               fi
               debug=$ndebug
           fi
-          onetlock=$netlock
           check_netlock
           [ $time_synced -ne -1 ] && t1=$t2
           sleep $sleeptime
-          t2=$(getLocalTime)
+          t2=$(getLocalTime +%s)
           local minute=$(date +%M -d "@$t2")
           local hour=$(date +%H -d "@$t2")
           local day=$(date +%m -d "@$t2")
@@ -747,6 +798,7 @@ lockAppNetCrond()
           local dt=$(expr $t2 - $t1)
           local time_disparity=1
           [ $dt -gt $(expr 300 + $sleeptime) -o $dt -lt $(expr -300 - $sleeptime) ] && time_disparity=0
+          echo "dt=$dt t1=$t1 t2=$t2 netlock=$netlock onetlock=$onetlock"
           if [ $time_disparity -eq 0 -o "$onetlock" != "$netlock" ]; then
                if [ $time_disparity -eq 0 ]; then
                     eval echo ":: time disparity of $dt seconds detected!" $OUTPUT
@@ -755,7 +807,7 @@ lockAppNetCrond()
                elif [ "$onetlock" != "$netlock" ]; then
                      onetlock=$netlock
                fi
-               eval lockAppNetRun $OUTPUT
+               eval lockAppNetRun  $OUTPUT
           else
                echo "$crontabs" | while read Line;do
                      Line=$(echo "$Line" | sed "s/#.*$//g")
@@ -803,6 +855,8 @@ if [ "$debug" = "1" ]; then
 else
      OUTPUT=""
 fi
+
+fromCrond=0
                                                                                
 eval lockAppNetRun $OUTPUT
 [ $daemon -eq 1 ] && lockAppNetCrond
