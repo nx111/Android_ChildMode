@@ -38,12 +38,12 @@ setprop android.lockAppNet.pid $$
 
 getTimeInDay()
 {
-        [ "$timezone" = "" ] timezone=$(date +%z)
+        [ "$timezone" = "" ] || timezone=$(date +%z)
         local hourzone=${timezone:1:2}
         local minzone=${timezone:3:2}
         local signzone=${timezone:0:1}
         local utc=$(date +%s)
-        result=$(expr $result $signzone $hourzone \* 3600 $signzone $minzone \* 60)
+        local result=$(expr $utc $signzone $hourzone \* 3600 $signzone $minzone \* 60)
         result=$(expr $result % 86400)
         echo $result
         return 0
@@ -248,7 +248,7 @@ now_in_time()
     #        fi
             local plani=$(echo "$plans"|cut -d';' -f$j | sed -e "s/[[:space:]]\{1,\} $//g" -e "s/^[[:space:]]\{1,\}//g" -e "s/[[:space:]]/ /g" -e "s/ \{2,\}/ /g")
             [ "$plani" = "" ] && break;
-            local plani_item_count=$(( $(echo "$plani" | grep  -o ';'| wc -l) + 1 ))
+            local plani_item_count=$(( $(echo "$plani" | grep  -o ' '| wc -l) + 1 ))
             local plan_time=$(echo "$plani"|cut -d' ' -f1)
             local plan_day=$(echo "$plani"|cut -d' ' -f2)
             local plan_opt=$(echo "$plani"|cut -d' ' -f3)
@@ -327,7 +327,7 @@ now_in_time()
                     fi
                 fi
             elif [ "$pday1" = "*" ]; then
-                timeifdi=0
+                timeifdi="0 -eq 0"
             fi
 
             if [ "$ptime2" = "" -a "$ptime1" != "*" ]; then
@@ -339,7 +339,7 @@ now_in_time()
                     timeifti="$timeinday -ge $ptime1 -o $timeinday -le $ptime2"
                 fi
             elif [ "$ptime1" == "*" ]; then
-                timeifti=0
+                timeifti="0 -eq 0"
             fi
             local timeifi=1
             if [ "$timeifdi" != "" -a "$timeifti" != "" ]; then
@@ -362,10 +362,10 @@ now_in_time()
             fi
             j=`expr $j + 1`
     done
-    if [ "$timeif" = "2" -o "$timeif" = "0" ]; then
-           timeif=0
+    if [ "$timeif" = "0" ]; then
+       timeif=0
     else
-           timeif=1
+       timeif=1
     fi
     echo $timeif
 }
@@ -494,11 +494,12 @@ lockAppNetRun()
      echo "   Time: $(getLocalTime +%H:%M:%S)"
      echo "==========================================="
      [ "$fromCrond" != "1" ] && check_netlock
+
      time=$(( $(date +%s) $(date +%z|cut -c 1)  $(($(date +%z|cut -c 2)*3600+$(date +%z|cut -c 3)*3600+$(date +%z|cut -c 4)*600+$(date +%z|cut -c 5)*60)) ))
      timeinday=$((time & 86400))
 
      echo "$configLines" | while read Line; do
-        Line=$(echo "$Line" | sed -e "s/#.*$//g" -e "s/^[[:space:]]\{1,\}//g" -e "s/[[:space:]]\{1,\}$//g")
+        Line=$(echo "$Line" | sed -e "s/#.*//g" -e "s/[[:space:]]*$//g")
         if echo "$Line" | grep -q "^[[:space:]]*#"; then
              continue;
         elif echo "$Line" | grep -q "^[[:space:]]*$"; then
@@ -515,7 +516,7 @@ lockAppNetRun()
         fi
         local hostname=$(echo "${lockhost}"|cut -d$ -f1)
         local rulename=""
-        
+
         if [ "$hostname" = "HOLIDAYS" -a "$blockname" = "Main" ]; then
             local holidays=$(echo "${lockhost}"|cut -d$ -f2)
             local j=1
@@ -564,7 +565,7 @@ lockAppNetRun()
             continue
         elif [ "$hostname" = "TIMEZONE" -a "$blockname" = "Main" ]; then
             timezone=$(echo "${lockhost}"|cut -d$ -f2 | sed "s/[[:space:]]*\([+-]\{0,1\}[[:digit:]]\{1,4\}\)[[:space:]]*/\1/")
-            #echo "Timezone=$timezone   Now: $(getLocalTime +%H:%M:%S)"
+            echo "Timezone=$timezone   Now: $(getLocalTime +%H:%M:%S)"
             timeinday=$(getTimeInDay)
             continue
         elif [ "${hostname:0:13}" = "APP_WHITELIST"  -a "$blockname" = "Main" ]; then
@@ -574,12 +575,14 @@ lockAppNetRun()
 	elif [ "${hostname}" = "SHUTDOWN" -a "$blockname" = "Main" ]; then
             local plans=$(echo "${lockhost}"|cut -d$ -f2)
             local timeif=1
+            #echo "- Applay: $Line"
             timeif=$(now_in_time "$plans")
 	    if [ "$timeif" = "0" ]; then
+	          echo "Shutdown phone..."
 		  sleep 60
 		  svc power shutdown
 	    fi
-	    continue
+            continue
         elif [ "$blockname" = "Network" ]; then
         #######################################################
             [ $time_synced -eq 1 ] && SyncTime
