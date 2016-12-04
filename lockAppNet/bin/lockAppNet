@@ -164,9 +164,11 @@ getAppName()
 
 ApplyWhiteList()
 {
-   [ -f $prefix/data/property/lockAppNet.whitelist ] || return 1
-   whitelist=$(cat $prefix/data/property/lockAppNet.whitelist)
-   [ "$whitelist" != "" ] && echo "AppWhiteList:        $whitelist"
+   #echo "WhiteList:$whitelist"
+   #[ -f $prefix/data/property/lockAppNet.whitelist ] || return 1
+   #whitelist=$(cat $prefix/data/property/lockAppNet.whitelist)
+   [ "$whitelist" = "" ] && return 1
+   echo "AppWhiteList:        $whitelist"
    itemcount=$(echo $whitelist | grep -o "," | wc -l)
    itemcount=$((itemcount + 1))
    [ "$whitelist" = "" ] && return 0
@@ -620,6 +622,7 @@ lockAppNetRun()
             timeif=$(now_in_time "$plans")
      
             globalNet=$(getprop lockAppNet.globalNet)
+	    
             if [ $timeif -eq 1 -a $netlock -eq 1 ] ; then
                   if [ "${hostname}" != "*" ]; then
                       if grep -q "^#.*${hostname}" ${hostsconfig}; then
