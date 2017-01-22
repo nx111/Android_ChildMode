@@ -384,6 +384,9 @@ getServerIP()
     local server_count=$(( $(echo "$1" | grep  -o ','| wc -l) + 1 ))
     local serverIP=""
 
+    if ! ping -c 1 -W 2 $dns > /dev/null; then
+       return 1
+    fi
     until [ $j -lt 0 -o $j -gt ${server_count} ]; do
         local iServer=$(echo "$1" | cut -d, -f$j )
         local ns=$(nslookup "$iServer" "$dns" 2>/dev/null | sed "1,3d" | grep "Address" | grep -v ":\{2,\}" | cut -d: -f2 | sed "s/^ //g" | cut -d' ' -f1 | sed ':a;N;s/\n/,/;ta' )
@@ -411,6 +414,11 @@ SyncTime()
                   time_synced=-1
                   return
             fi
+    fi
+
+    if ! ping -c 1 -W 2 $dns > /dev/null; then
+       #echo "Network if offline!"
+       return 1
     fi
 
     if [ $time_synced -ne 0 ]; then
@@ -793,6 +801,8 @@ lockAppNetCrond()
 {
     fromCrond=1
     local t1=0
+    local tm1=0
+    local tm2=$(date +%s)
     local t2=$(getLocalTime +%s)
     local onetlock="$netlock"
     until [ 1 -eq 2 ]; do
@@ -809,20 +819,23 @@ lockAppNetCrond()
               debug=$ndebug
           fi
           check_netlock
-          [ $time_synced -ne -1 ] && t1=$t2
+          [ $time_synced -ne -1 ] && t1=$t2 && tm1=$tm2
           sleep $sleeptime
           t2=$(getLocalTime +%s)
+          tm2=$(date +%s)
           local minute=$(date +%M -d "@$t2")
           local hour=$(date +%H -d "@$t2")
           local day=$(date +%m -d "@$t2")
           local weekday=$(date +%w -d "@$t2")
-          local dt=$(expr $t2 - $t1)
+          local dt=$(expr $tm2 - $tm1)
           local time_disparity=1
+          local ntm=$(expr $tm1 + $sleeptime)
           [ $dt -gt $(expr 300 + $sleeptime) -o $dt -lt $(expr -300 - $sleeptime) ] && time_disparity=0
           echo "dt=$dt t1=$t1 t2=$t2 netlock=$netlock onetlock=$onetlock"
           if [ $time_disparity -eq 0 -o "$onetlock" != "$netlock" ]; then
                if [ $time_disparity -eq 0 ]; then
                     eval echo ":: time disparity of $dt seconds detected!" $OUTPUT
+                    date -s "@$ntm"
                     eval SyncTime $OUTPUT
                     sleep 10
                elif [ "$onetlock" != "$netlock" ]; then
