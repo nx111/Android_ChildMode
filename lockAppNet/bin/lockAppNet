@@ -651,7 +651,7 @@ lockAppNetRun()
                       ##iptables -A OUTPUT -p tcp -m tcp --dport 123 -j ACCEPT
                       iptables -A OUTPUT -p 17 -m udp --dport 123 -j ACCEPT
                       iptables -A OUTPUT -p 6 -m tcp --dport 123 -j ACCEPT
-                      # all rdate
+                      # allow rdate
                       ##iptables -A OUTPUT -p udp -m udp --dport 37 -j ACCEPT
                       ##iptables -A OUTPUT -p tcp -m tcp --dport 37 -j ACCEPT
                       iptables -A OUTPUT -p 17 -m udp --dport 37 -j ACCEPT
@@ -659,6 +659,9 @@ lockAppNetRun()
                       # allow ping
                       #iptables -A OUTPUT -p icmp --icmp-type 8 -j ACCEPT
                       iptables -A OUTPUT -p 1 -j ACCEPT
+                      # allow network adb
+                      iptables -A OUTPUT -p 6 -m tcp --sport 5555 -j ACCEPT
+                      iptables -A INPUT -p 6 -m tcp --dport 5555 -j ACCEPT
                       ApplyWhiteList
                       echo "    --Network is disabled!"
                   fi
