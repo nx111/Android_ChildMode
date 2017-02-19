@@ -142,21 +142,12 @@ remove()
       rm "$1"
    fi
 }
-getAppUID()
-{
-    [ $# -lt 1 ] && return 1
-    if grep "^[^[:space:]]*\.\{0,1\}$1[\.[:space:]]\{1,\}.*" $prefix/data/system/packages.list >/dev/null 2>/dev/null; then
-        grep "^[^[:space:]]*\.\{0,1\}$1[\.[:space:]]\{1,\}.*" $prefix/data/system/packages.list  | cut -d' ' -f2 | sed ':a;N;s/\n/,/;ba'
-        return 0
-    fi
-    return 1
-}
 
-getAppName()
+getApps()
 {
     [ $# -lt 1 ] && return 1
     if grep "^[^[:space:]]*\.\{0,1\}$1[\.[:space:]]\{1,\}.*" $prefix/data/system/packages.list >/dev/null 2>/dev/null; then
-        grep "^[^[:space:]]*\.\{0,1\}$1[\.[:space:]]\{1,\}.*" $prefix/data/system/packages.list  | cut -d' ' -f1 | sed ':a;N;s/\n/,/;ba'
+        grep "^[^[:space:]]*\.\{0,1\}$1[\.[:space:]]\{1,\}.*" $prefix/data/system/packages.list  | cut -d' ' -f-2 | sed ':a;N;s/\n/,/;ba'
         return 0
     fi
     return 1
@@ -181,16 +172,18 @@ ApplyWhiteList()
               i=$(expr $i + 1)
               continue
        fi
-       appuid=$(getAppUID $appname)
-       if [ $? -eq 1 -o "$appuid" = "" ]; then
+       apps=$(getApps $appname)
+       if [ $? -eq 1 -o "$apps" = "" ]; then
               i=$(expr $i + 1)
               continue
        fi
-       k=0
-       uidcount=$(echo $appuid | grep -o "," | wc -l)
+       k=1
+       uidcount=$(echo $apps | grep -o "," | wc -l)
        uidcount=$((uidcount + 1))
        until [ $k -gt $uidcount ]; do
-            uiditem=$(echo $appuid| cut -d, -f$uidcount)
+            uiditem=$(echo $apps| cut -d, -f$k | cut -d' ' -f2)
+            appitem=$(echo $apps| cut -d, -f$k | cut -d' ' -f1)
+            echo " -  WhiteList: $appitem"
             iptables -A OUTPUT -m owner --uid-owner  $uiditem -j ACCEPT
             k=$(expr $k + 1)
        done
@@ -701,28 +694,29 @@ lockAppNetRun()
                 continue
             fi
 
-            local appuid=$(getAppUID $appname)
-            if [ $? -eq 1 -o "$appuid" = "" ]; then
+            local apps=$(getApps $appname)
+            if [ $? -eq 1 -o "$apps" = "" ]; then
                    continue
             fi
 
-            local k=0
-            local uidcount=$(echo $appuid | grep -o "," | wc -l)
+            local k=1
+            local uidcount=$(echo $apps | grep -o "," | wc -l)
             uidcount=$((uidcount + 1))
             local plans=$(echo "${lockhost}"|cut -d$ -f2)
             local timeif=1
             until [ $k -ge $uidcount ]; do
-                 local uiditem=$(echo $appuid| cut -d, -f$uidcount)
+                 local uiditem=$(echo $apps| cut -d, -f$k | cut -d' ' -f 2)
+                 local appitem=$(echo $apps| cut -d, -f$k | cut -d' ' -f 1)
                  timeif=$(now_in_time "$plans")
      
                  if [ "$timeif" = "1" -a $netlock -eq 1 ]; then
                       iptables -D OUTPUT -m owner --uid-owner  $uiditem -j ACCEPT > /dev/null 2>/dev/null
                       iptables -A OUTPUT -m owner --uid-owner  $uiditem -j REJECT
-                      echo "   --Disabled $appname"
+                      echo "   --Disabled $appitem"
                  else
                       iptables -D OUTPUT -m owner --uid-owner  $uiditem -j REJECT > /dev/null 2>/dev/null
                       iptables -A OUTPUT -m owner --uid-owner  $uiditem -j ACCEPT
-                      echo "   --Enabled $appname"
+                      echo "   --Enabled $appitem"
                  fi
                  k=$(expr $k + 1)
             done
