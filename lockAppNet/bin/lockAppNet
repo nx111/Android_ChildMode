@@ -10,6 +10,7 @@ crontabs=""
 daemon=0
 debug=0
 verbose=0
+appWhiteListApplied=0
 
 [ -f $configfile2 ] && configfile=$configfile2
 [ -f $configfile -o -f $configfile2 ] || exit 0
@@ -168,7 +169,7 @@ ApplyWhiteList()
    #[ -f $prefix/data/property/lockAppNet.whitelist ] || return 1
    #whitelist=$(cat $prefix/data/property/lockAppNet.whitelist)
    [ "$whitelist" = "" ] && return 1
-   echo " AppWhiteList:        $whitelist"
+   echo "  AppWhiteList:  $whitelist"
    itemcount=$(echo $whitelist | grep -o "," | wc -l)
    itemcount=$((itemcount + 1))
    [ "$whitelist" = "" ] && return 0
@@ -192,12 +193,13 @@ ApplyWhiteList()
        until [ $k -gt $uidcount ]; do
             uiditem=$(echo $apps| cut -d, -f$k | cut -d' ' -f2)
             appitem=$(echo $apps| cut -d, -f$k | cut -d' ' -f1)
-            echo " -  WhiteList: $appitem"
+            echo "    -  WhiteList: $appitem"
             iptables -A OUTPUT -m owner --uid-owner  $uiditem -j ACCEPT
             k=$(expr $k + 1)
        done
        i=$(expr $i + 1)
    done
+   appWhiteListApplied=1
 }
 
 #mkcrontab(vday,vhour,vmin,vcommand)
@@ -443,8 +445,8 @@ SyncTime()
                  local k=1
                  until [ $k -gt $c ]; do
                      local cur=$(echo "$ntpServerIP" | cut -d, -f$k)
-                     echo "  ## rdate -s $cur"
-                     rdate -s $cur
+                     echo "  ## rdate -s $cur ..."
+                     rdate -s $cur >/dev/null 2>/dev/null
                      if [ $? -eq 0 ]; then
                          time_synced=0
                          hwclock -w -u
@@ -509,6 +511,9 @@ lockAppNetRun()
      local ruleClassName=""
      local whitelist=""
      local globalNet=0
+     local blockid=0
+     appWhiteListApplied=0
+
      echo "   Time: $(getLocalTime +%H:%M:%S)"
      echo "==========================================="
      [ "$fromCrond" != "1" ] && check_netlock
@@ -525,6 +530,14 @@ lockAppNetRun()
         fi
         if echo "$Line" |  grep -q "[[:space:]]*\[\{1,\}.*\]\{1,\}[[:space:]]*$"; then
              blockname=$(echo "$Line"|sed "s/[[:space:]]*\[\{1,\}[[:space:]]*\(.*\)[[:space:]]*\]\{1,\}[[:space:]]*$/\1/")
+             blockid=$(( blockid + 1))
+             if [ $blockid -gt 1 ]; then
+                   echo ""
+                   echo "    [ $blockname ]"
+                   echo "  ---------------------"
+             fi
+             [ "$blockname" = "Application" ] &&  ApplyWhiteList
+
              continue;
         fi
         local lockhost=$(echo "$Line"|sed -e "s/[[:space:]]*\([[:graph:]]\{1,\}\)[[:space:]=]\{1,\}\(.*\)/\1\$\2/" )
@@ -624,7 +637,7 @@ lockAppNetRun()
             if [ $netlock -eq 0 ]; then
                  echo " -  Disable Rule: $Line"
             elif [ $netlock -eq 1 ]; then
-                 echo "->  Apply Rule: $Line"
+                 echo " -  Apply Rule: $Line"
             fi
             local plans=$(echo "${lockhost}"|cut -d$ -f2)
             if [ "${hostname}" != "*" ]; then
@@ -649,29 +662,36 @@ lockAppNetRun()
                   elif [ "$globalNet" != "1" -a "$globalNet" != "2" ]; then
                       setprop lockAppNet.globalNet 1
                       iptables -F
+                      iptables -X
+                      iptables -P INPUT ACCEPT
                       iptables -P OUTPUT DROP
-                      iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+                      #iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+
                       # allow DNS
                       ##iptables -A OUTPUT -p udp -m udp --dport 53 -j ACCEPT
                       iptables -A OUTPUT -p 17 -m udp --dport 53 -j ACCEPT
+
                       # allow SNTP/NTP
                       ##iptables -A OUTPUT -p udp -m udp --dport 123 -j ACCEPT
                       ##iptables -A OUTPUT -p tcp -m tcp --dport 123 -j ACCEPT
                       iptables -A OUTPUT -p 17 -m udp --dport 123 -j ACCEPT
                       iptables -A OUTPUT -p 6 -m tcp --dport 123 -j ACCEPT
+
                       # allow rdate
                       ##iptables -A OUTPUT -p udp -m udp --dport 37 -j ACCEPT
                       ##iptables -A OUTPUT -p tcp -m tcp --dport 37 -j ACCEPT
                       iptables -A OUTPUT -p 17 -m udp --dport 37 -j ACCEPT
                       iptables -A OUTPUT -p 6 -m tcp --dport 37 -j ACCEPT
+
                       # allow ping
                       #iptables -A OUTPUT -p icmp --icmp-type 8 -j ACCEPT
                       iptables -A OUTPUT -p 1 -j ACCEPT
+
                       # allow network adb
                       iptables -A OUTPUT -p 6 -m tcp --sport 5555 -j ACCEPT
-                      iptables -A INPUT -p 6 -m tcp --dport 5555 -j ACCEPT
-                      ApplyWhiteList
-                      echo "    --Network is disabled!"
+                      #iptables -A INPUT -p 6 -m tcp --dport 5555 -j ACCEPT
+
+                      echo "    --Network Access default disabled!"
                   fi
              else
                   if [ "${hostname}" != "*" ]; then
@@ -683,8 +703,10 @@ lockAppNetRun()
                   elif [ "$globalNet" != "1" -a "$globalNet" != "2" ]; then
                       setprop lockAppNet.globalNet 2
                       iptables -F
+                      iptables -X
                       iptables -P OUTPUT ACCEPT
-                      echo "   --Network is enabled!"
+                      iptables -P INPUT ACCEPT
+                      echo "   --Network Access default enabled!"
                   fi
              fi
          elif  [ "$blockname" = "Application" ]; then
@@ -737,8 +759,10 @@ lockAppNetRun()
             done
      
          fi
-     
      done
+
+     [ $appWhiteListApplied -eq 0 ] && ApplyWhiteList
+
      echo ""
      verbose=$(getprop android.lockAppNet.verbose)
      if [ $verbose -eq 1 ]; then
@@ -861,8 +885,8 @@ lockAppNetCrond()
           [ $dt -gt $(expr 300 + $sleeptime) -o $dt -lt $(expr -300 - $sleeptime) ] && time_disparity=1
           [ $tm2 -gt $(expr 1800 + $lastSyncTime) -o $tm2 -lt $(expr -1800 + $lastSyncTime) ] && time_disparity=2
 
-          if [ $time_disparity -ne 0 -o "$onetlock" != "$netlock"  -o $time_synced -eq -1 ] && [ "$netlock" != "0" ]; then
-               if [ $time_disparity -ne 0  -o $time_synced -eq -1 ]; then
+          if [ $time_disparity -ne 0 -o "$onetlock" != "$netlock"  -o $time_synced -eq -1 ]; then
+               if [ $time_disparity -ne 0  -o $time_synced -eq -1 ]  && [ "$netlock" != "0" ]; then
                     [ $time_disparity -eq 1 ] && eval echo ":: time disparity of $dt seconds detected!" $OUTPUT
                     [ $time_disparity -eq 2 ] && eval echo ":: last sync time before 30 minutes!" $OUTPUT
                     [ $time_disparity -ne 0 ] && time_synced=-1
