@@ -425,18 +425,25 @@ SyncTime()
         fi
         if [ "$ntpServerIP" != "" ]; then
              if [ "`which ntpd`" != "" ]; then
-                 ntpd -qNn -p `echo "$ntpServerIP" | sed "s/,/ -p /g"`
-                 if [ $? -eq 0 ]; then
+                 local c=$(( $(echo "$ntpServerIP" |  grep  -o ','| wc -l) + 1 ))
+                 local k=1
+                 until [ $k -gt $c ]; do
+                     local cur=$(echo "$ntpServerIP" | cut -d, -f$k)
+                     echo "  ## rdate -s $cur"
+                     ntpd -qNn -p $cur
+                     if [ $? -eq 0 ]; then
                          time_synced=0
                          hwclock -w -u
                          setprop android.lockAppNet.timesync `date +%s`
                          return 0
-                 fi
+                     fi
+                 done
              else
                  local c=$(( $(echo "$ntpServerIP" |  grep  -o ','| wc -l) + 1 ))
                  local k=1
                  until [ $k -gt $c ]; do
                      local cur=$(echo "$ntpServerIP" | cut -d, -f$k)
+                     echo "  ## rdate -s $cur"
                      rdate -s $cur
                      if [ $? -eq 0 ]; then
                          time_synced=0
@@ -804,6 +811,7 @@ lockAppNetCrond()
     local tm2=$(date +%s)
     local t2=$(getLocalTime +%s)
     local onetlock="$netlock"
+    local lastoktime=$tm2
     local lastSyncTime=$(getprop android.lockAppNet.timesync)
     [ "$lasSyncTime" = "" ] && lastSyncTime=0
     until [ 1 -eq 2 ]; do
@@ -831,18 +839,21 @@ lockAppNetCrond()
           local weekday=$(date +%w -d "@$t2")
           local dt=$(expr $tm2 - $tm1)
           local time_disparity=0
-          local ntm=$(expr $tm1 + $sleeptime)
+          lastoktime=$(expr $lastoktime + $sleeptime)
           [ $dt -gt $(expr 300 + $sleeptime) -o $dt -lt $(expr -300 - $sleeptime) ] && time_disparity=1
           [ $tm2 -gt $(expr 1800 + $lastSyncTime) -o $tm2 -lt $(expr -1800 + $lastSyncTime) ] && time_disparity=2
 
-          echo "dt=$dt t1=$t1 t2=$t2 netlock=$netlock onetlock=$onetlock"
-          if [ $time_disparity -ne 0 -o "$onetlock" != "$netlock" ]; then
-               if [ $time_disparity -ne 0 ]; then
+          if [ $time_disparity -ne 0 -o "$onetlock" != "$netlock"  -o $time_synced -eq -1 ]; then
+               if [ $time_disparity -ne 0  -o $time_synced -eq -1 ]; then
                     [ $time_disparity -eq 1 ] && eval echo ":: time disparity of $dt seconds detected!" $OUTPUT
                     [ $time_disparity -eq 2 ] && eval echo ":: last sync time before 30 minutes!" $OUTPUT
-                    date -s "@$ntm"
+                    [ $time_disparity -ne 0 ] && time_synced=-1
+                    #echo "lastoktime=$lastoktime now=$tm2"
+                    date -s "@$lastoktime" 
                     eval SyncTime $OUTPUT
-                    sleep 10
+                    local tm3=$(date +%s)
+                    local dt3=$(expr $tm3 - $tm2)
+                    lastoktime=$(expr $lastoktime + $dt3)
                elif [ "$onetlock" != "$netlock" ]; then
                      onetlock=$netlock
                fi
