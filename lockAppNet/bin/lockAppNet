@@ -3,15 +3,18 @@ prefix=""
 hostsconfig=$prefix/system/etc/hosts
 configfile=$prefix/system/etc/lockAppNet.conf
 configfile2=$prefix/data/system/lockAppNet.conf
-crontabfile=$prefix/data/crontabs/lockAppNet/root
+crontabfile=$prefix/data/system/lockAppNet.crontab
 LOGFILE=$prefix/data/lockAppNet.log
 OUTPUT="/dev/tty"
 crontabs=""
 daemon=0
 debug=0
+verbose=0
 
 [ -f $configfile2 ] && configfile=$configfile2
 [ -f $configfile -o -f $configfile2 ] || exit 0
+
+rm -f $crontabfile
 
 setprop android.lockAppNet.debug ""
 if [ $# -ge 1 ]; then
@@ -19,11 +22,17 @@ if [ $# -ge 1 ]; then
         if [ "$argv" = "-debug" ]; then
            setprop android.lockAppNet.debug 1
            debug=1
+        elif [ "$argv" = "-verbose" ]; then
+           setprop android.lockAppNet.verbose 1
+           verbose=1
         elif [ "$argv" = "-d" ]; then
            daemon=1
         fi
     done
 fi
+[ "$debug" = "0" ] && setprop android.lockAppNet.debug 0
+[ "$verbose" = "0" ] && setprop android.lockAppNet.verbose 0
+
 lockAppNetPID=$(getprop android.lockAppNet.pid)
 if [ "$lockAppNetPID" != "" -a -d /proc/$lockAppNetPID ]; then
         echo "Warnning: $0 already is running(PID=$lockAppNetPID),exit now!"
@@ -159,7 +168,7 @@ ApplyWhiteList()
    #[ -f $prefix/data/property/lockAppNet.whitelist ] || return 1
    #whitelist=$(cat $prefix/data/property/lockAppNet.whitelist)
    [ "$whitelist" = "" ] && return 1
-   echo "AppWhiteList:        $whitelist"
+   echo " AppWhiteList:        $whitelist"
    itemcount=$(echo $whitelist | grep -o "," | wc -l)
    itemcount=$((itemcount + 1))
    [ "$whitelist" = "" ] && return 0
@@ -209,6 +218,7 @@ mkcrontab()
         [ "$vday" = "*" -a "$vhour" = "*" -a "$vmin" = "*" ] && return
         local newitem="$vmini\s\{1,\}$vhour\s\{1,\}*\s\{1\}*\s\{1,\}\S\{1,\}\s\{1,\}$0"
         local items=$(echo "$newitem" | sed -e "s/\*/\\\*/g" -e "s/\//\\//g")
+        [ -f $crontabfile ] && crontabs=$(cat $crontabfile)
         if ! echo "$crontabs" | grep  -q "$items" ; then
              line="$vmin	$vhour	*	*	$vday	$0"
         elif [ "$vday" = "*" ]; then
@@ -222,8 +232,8 @@ mkcrontab()
                    line="$vmin        $vhour  *       *       $vday   $0"
              fi
         fi
-        crontabs="${crontabs}\n${line}"
-        #echo "$line" >> $crontabfile
+        #crontabs="${crontabs}\n${line}"
+        echo "$line" >> $crontabfile
 }
 now_in_time()
 {
@@ -243,12 +253,13 @@ now_in_time()
     #        fi
             local plani=$(echo "$plans"|cut -d';' -f$j | sed -e "s/[[:space:]]\{1,\} $//g" -e "s/^[[:space:]]\{1,\}//g" -e "s/[[:space:]]/ /g" -e "s/ \{2,\}/ /g")
             [ "$plani" = "" ] && break;
-            local plani_item_count=$(( $(echo "$plani" | grep  -o ' '| wc -l) + 1 ))
+            local plani_item_count=$(echo "$plani" | grep  -o ' '| wc -l)
+            [ $plani_item_count -eq 0 ] && plani_item_count=1
+            [ $plani_item_count -eq 1 ] && plan_day="*"
+            [ $plani_item_count -lt 3 ] && plan_opt=""
             local plan_time=$(echo "$plani"|cut -d' ' -f1)
             local plan_day=$(echo "$plani"|cut -d' ' -f2)
             local plan_opt=$(echo "$plani"|cut -d' ' -f3)
-            [ $plani_item_count -lt 2 ] && plan_day="*"
-            [ $plani_item_count -lt 3 ] && plan_opt=""
             local ptime1=""
             local ptime2=""
 	    local ptime1_hour=""
@@ -304,7 +315,8 @@ now_in_time()
             if [ "$pday1" != "*" -a "$pday1" != "" ]; then
                 if echo "$plan_day" | grep -q ','; then
                     local iday=1
-                    local day_count=$(( $(echo "$plan_day" | grep  -o ','| wc -l) + 1 ))
+                    local day_count=$(echo "$plan_day" | grep  -o ','| wc -l)
+                    [ $day_count -eq 0 ] && day_count=1
                     timeifdi=""
                     until [ $iday -lt 0 -o $iday -gt ${day_count} ]; do
                          item_day=$(echo "$plan_day"|cut -d, -f $iday)
@@ -374,7 +386,8 @@ getServerIP()
         [ 0$num -lt 1 ] && return 
     fi
     local j=1
-    local server_count=$(( $(echo "$1" | grep  -o ','| wc -l) + 1 ))
+    local server_count=$(echo "$1" | grep  -o ','| wc -l)
+    [ $server_count -eq 0 ] && server_count=1
     local serverIP=""
 
     if ! ping -c 1 -W 2 $dns > /dev/null; then
@@ -424,22 +437,9 @@ SyncTime()
              fi
         fi
         if [ "$ntpServerIP" != "" ]; then
-             if [ "`which ntpd`" != "" ]; then
-                 local c=$(( $(echo "$ntpServerIP" |  grep  -o ','| wc -l) + 1 ))
-                 local k=1
-                 until [ $k -gt $c ]; do
-                     local cur=$(echo "$ntpServerIP" | cut -d, -f$k)
-                     echo "  ## rdate -s $cur"
-                     ntpd -qNn -p $cur
-                     if [ $? -eq 0 ]; then
-                         time_synced=0
-                         hwclock -w -u
-                         setprop android.lockAppNet.timesync `date +%s`
-                         return 0
-                     fi
-                 done
-             else
-                 local c=$(( $(echo "$ntpServerIP" |  grep  -o ','| wc -l) + 1 ))
+             if [ "`which rdate`" != "" ]; then
+                 local c=$(echo "$ntpServerIP" |  grep  -o ','| wc -l)
+                 [ $c -eq 0 ] && c=1
                  local k=1
                  until [ $k -gt $c ]; do
                      local cur=$(echo "$ntpServerIP" | cut -d, -f$k)
@@ -455,6 +455,12 @@ SyncTime()
                          k=$(expr $k + 1)
                      fi
                  done
+             elif [ "`which ntpd`" != "" ]; then
+                 ntpd -qNn -p `echo "$ntpServerIP" | sed "s/,/ -p /g"` 2>/dev/null
+                 time_synced=0
+                 sleep 10
+                 hwclock -w -u
+                 setprop android.lockAppNet.timesync `date +%s`
              fi
         fi
         time_synced=-1
@@ -577,7 +583,7 @@ lockAppNetRun()
             continue
         elif [ "$hostname" = "TIMEZONE" -a "$blockname" = "Main" ]; then
             timezone=$(echo "${lockhost}"|cut -d$ -f2 | sed "s/[[:space:]]*\([+-]\{0,1\}[[:digit:]]\{1,4\}\)[[:space:]]*/\1/")
-            echo "Timezone=$timezone   Now: $(getLocalTime +%H:%M:%S)"
+            echo " Timezone=$timezone   Now: $(getLocalTime +%H:%M:%S)"
             timeinday=$(getTimeInDay)
             continue
         elif [ "${hostname:0:13}" = "APP_WHITELIST"  -a "$blockname" = "Main" ]; then
@@ -590,7 +596,7 @@ lockAppNetRun()
             #echo "- Applay: $Line"
             timeif=$(now_in_time "$plans")
 	    if [ "$timeif" = "0" ]; then
-	          echo "Shutdown phone..."
+	          echo " Shutdown phone..."
 		  sleep 60
 		  svc power shutdown
 	    fi
@@ -710,10 +716,10 @@ lockAppNetRun()
 
             local k=1
             local uidcount=$(echo $apps | grep -o "," | wc -l)
-            uidcount=$((uidcount + 1))
+            [ $uidcount -eq 0 ] && uidcount=1
             local plans=$(echo "${lockhost}"|cut -d$ -f2)
             local timeif=1
-            until [ $k -ge $uidcount ]; do
+            until [ $k -gt $uidcount ]; do
                  local uiditem=$(echo $apps| cut -d, -f$k | cut -d' ' -f 2)
                  local appitem=$(echo $apps| cut -d, -f$k | cut -d' ' -f 1)
                  timeif=$(now_in_time "$plans")
@@ -725,7 +731,7 @@ lockAppNetRun()
                  else
                       iptables -D OUTPUT -m owner --uid-owner  $uiditem -j REJECT > /dev/null 2>/dev/null
                       iptables -A OUTPUT -m owner --uid-owner  $uiditem -j ACCEPT
-                      echo "   --Enabled $appitem"
+                      echo "   --Enabled  $appitem"
                  fi
                  k=$(expr $k + 1)
             done
@@ -733,6 +739,18 @@ lockAppNetRun()
          fi
      
      done
+     echo ""
+     verbose=$(getprop android.lockAppNet.verbose)
+     if [ $verbose -eq 1 ]; then
+         echo "  - crontab: "
+         echo "-----------------------------------------------------------------"
+         cat $crontabfile | while read Line;do
+              Line=$(echo "$Line" | sed "s/#.*$//g")
+              echo "   $Line"
+         done
+         echo "-----------------------------------------------------------------"
+         echo ""
+     fi
      echo ""
      setprop lockAppNet.globalNet ""
      #[ -w $prefix/system ] && mount -o remount,ro $prefix/system
@@ -811,7 +829,7 @@ lockAppNetCrond()
     local tm2=$(date +%s)
     local t2=$(getLocalTime +%s)
     local onetlock="$netlock"
-    local lastoktime=$tm2
+    local estimateTime=$tm2
     local lastSyncTime=$(getprop android.lockAppNet.timesync)
     [ "$lasSyncTime" = "" ] && lastSyncTime=0
     until [ 1 -eq 2 ]; do
@@ -839,27 +857,27 @@ lockAppNetCrond()
           local weekday=$(date +%w -d "@$t2")
           local dt=$(expr $tm2 - $tm1)
           local time_disparity=0
-          lastoktime=$(expr $lastoktime + $sleeptime)
+          estimateTime=$(expr $estimateTime + $sleeptime)
           [ $dt -gt $(expr 300 + $sleeptime) -o $dt -lt $(expr -300 - $sleeptime) ] && time_disparity=1
           [ $tm2 -gt $(expr 1800 + $lastSyncTime) -o $tm2 -lt $(expr -1800 + $lastSyncTime) ] && time_disparity=2
 
-          if [ $time_disparity -ne 0 -o "$onetlock" != "$netlock"  -o $time_synced -eq -1 ]; then
+          if [ $time_disparity -ne 0 -o "$onetlock" != "$netlock"  -o $time_synced -eq -1 ] && [ "$netlock" != "0" ]; then
                if [ $time_disparity -ne 0  -o $time_synced -eq -1 ]; then
                     [ $time_disparity -eq 1 ] && eval echo ":: time disparity of $dt seconds detected!" $OUTPUT
                     [ $time_disparity -eq 2 ] && eval echo ":: last sync time before 30 minutes!" $OUTPUT
                     [ $time_disparity -ne 0 ] && time_synced=-1
-                    #echo "lastoktime=$lastoktime now=$tm2"
-                    date -s "@$lastoktime" 
+                    #echo "estimateTime=$estimateTime now=$tm2"
                     eval SyncTime $OUTPUT
                     local tm3=$(date +%s)
                     local dt3=$(expr $tm3 - $tm2)
-                    lastoktime=$(expr $lastoktime + $dt3)
+                    estimateTime=$(expr $estimateTime + $dt3)
+                    [ $time_synced -eq -1 ] && date -s "@$estimateTime"
                elif [ "$onetlock" != "$netlock" ]; then
                      onetlock=$netlock
                fi
                eval lockAppNetRun  $OUTPUT
           else
-               echo "$crontabs" | while read Line;do
+               cat $crontabfile | while read Line;do
                      Line=$(echo "$Line" | sed "s/#.*$//g")
                      if echo "$Line" | grep -q "^[[:space:]]*#"; then
                           continue;
