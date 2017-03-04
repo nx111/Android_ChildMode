@@ -15,7 +15,7 @@ appWhiteListApplied=0
 [ -f $configfile2 ] && configfile=$configfile2
 [ -f $configfile -o -f $configfile2 ] || exit 0
 
-rm -f $crontabfile
+rm -f $crontabfile.tmp
 
 setprop android.lockAppNet.debug ""
 if [ $# -ge 1 ]; then
@@ -220,10 +220,11 @@ mkcrontab()
         [ "$vday" = "*" -a "$vhour" = "*" -a "$vmin" = "*" ] && return
         local newitem="$vmini\s\{1,\}$vhour\s\{1,\}*\s\{1\}*\s\{1,\}\S\{1,\}\s\{1,\}$0"
         local items=$(echo "$newitem" | sed -e "s/\*/\\\*/g" -e "s/\//\\//g")
-        if [ -f $crontabfile ]; then
-              crontabs=$(cat $crontabfile)
+        if [ -f $crontabfile.tmp ]; then
+               crontabs=$(cat $crontabfile.tmp)
         else
-              touch $crontabfile
+              touch $crontabfile.tmp
+              crontabs=""
         fi
 
         if ! echo "$crontabs" | grep  -q "$items" ; then
@@ -240,7 +241,7 @@ mkcrontab()
              fi
         fi
         #crontabs="${crontabs}\n${line}"
-        echo "$line" >> $crontabfile
+        echo "$line" >> $crontabfile.tmp
 }
 now_in_time()
 {
@@ -773,6 +774,7 @@ lockAppNetRun()
      
          fi
      done
+     [ -f $crontabfile.tmp ] && mv $crontabfile.tmp $crontabfile
 
      [ $appWhiteListApplied -eq 0 ] && ApplyWhiteList
 
@@ -897,7 +899,6 @@ lockAppNetCrond()
           estimateTime=$(expr $estimateTime + $sleeptime)
           [ $dt -gt $(expr 300 + $sleeptime) -o $dt -lt $(expr -300 - $sleeptime) ] && time_disparity=1
           [ $tm2 -gt $(expr 1800 + $lastSyncTime) -o $tm2 -lt $(expr -1800 + $lastSyncTime) ] && time_disparity=2
-
           if [ $time_disparity -ne 0 -o "$onetlock" != "$netlock"  -o $time_synced -eq -1 ]; then
                if [ $time_disparity -ne 0  -o $time_synced -eq -1 ]  && [ "$netlock" != "0" ]; then
                     [ $time_disparity -eq 1 ] && eval echo ":: time disparity of $dt seconds detected!" $OUTPUT
@@ -913,7 +914,7 @@ lockAppNetCrond()
                      onetlock=$netlock
                fi
                eval lockAppNetRun  $OUTPUT
-          elif [ -f $crontabfile]; then
+          elif [ -f $crontabfile ]; then
                cat $crontabfile | while read Line;do
                      Line=$(echo "$Line" | sed "s/#.*$//g")
                      if echo "$Line" | grep -q "^[[:space:]]*#"; then
