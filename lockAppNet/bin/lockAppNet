@@ -16,6 +16,7 @@ appWhiteListApplied=0
 [ -f $configfile -o -f $configfile2 ] || exit 0
 
 rm -f $crontabfile.tmp
+rm -f $LOGFILE
 
 setprop android.lockAppNet.debug ""
 if [ $# -ge 1 ]; then
@@ -170,8 +171,7 @@ ApplyWhiteList()
    #whitelist=$(cat $prefix/data/property/lockAppNet.whitelist)
    [ "$whitelist" = "" ] && return 1
    echo "  AppWhiteList:  $whitelist"
-   itemcount=$(echo $whitelist | grep -o "," | wc -l)
-   itemcount=$((itemcount + 1))
+   itemcount=$(( $(echo $whitelist | grep -o "," | wc -l) + 1))
    [ "$whitelist" = "" ] && return 0
    local appname=""
    local appuid=""
@@ -188,8 +188,7 @@ ApplyWhiteList()
               continue
        fi
        k=1
-       uidcount=$(echo $apps | grep -o "," | wc -l)
-       uidcount=$((uidcount + 1))
+       uidcount=$(( $(echo $apps | grep -o "," | wc -l) + 1))
        until [ $k -gt $uidcount ]; do
             uiditem=$(echo $apps| cut -d, -f$k | cut -d' ' -f2)
             appitem=$(echo $apps| cut -d, -f$k | cut -d' ' -f1)
@@ -252,7 +251,8 @@ now_in_time()
     local plans="$1"
     local timeif=1
     local j=1
-    local i_plan_count=$(( $(echo "$plans" | grep  -o ';'| wc -l) + 1 ))
+    local i_plan_count=$(( $(echo "$plans" | grep  -o ';'| wc -l) + 1))
+    day=$(date +%u)
 
     until [ $j -lt 0 -o $j -gt ${i_plan_count} ]; do
     #        if [ $j -gt 1 ]; then
@@ -261,10 +261,10 @@ now_in_time()
     #        fi
             local plani=$(echo "$plans"|cut -d';' -f$j | sed -e "s/[[:space:]]\{1,\} $//g" -e "s/^[[:space:]]\{1,\}//g" -e "s/[[:space:]]/ /g" -e "s/ \{2,\}/ /g")
             [ "$plani" = "" ] && break;
-            local plani_item_count=$(echo "$plani" | grep  -o ' '| wc -l)
-            [ $plani_item_count -eq 0 ] && plani_item_count=1
-            [ $plani_item_count -eq 1 ] && plan_day="*"
-            [ $plani_item_count -lt 3 ] && plan_opt=""
+            local plani_item_count=$(( $(echo "$plani" | grep  -o ' '| wc -l) + 1))
+            [ $plani_item_count -eq 1 ] && plani_item_count=1
+            [ $plani_item_count -eq 2 ] && plan_day="*"
+            [ $plani_item_count -lt 4 ] && plan_opt=""
             local plan_time=$(echo "$plani"|cut -d' ' -f1)
             local plan_day=$(echo "$plani"|cut -d' ' -f2)
             local plan_opt=$(echo "$plani"|cut -d' ' -f3)
@@ -320,28 +320,28 @@ now_in_time()
                     j=`expr $j + 1`
                     continue
             fi
+
             if [ "$pday1" != "*" -a "$pday1" != "" ]; then
                 if echo "$plan_day" | grep -q ','; then
                     local iday=1
-                    local day_count=$(echo "$plan_day" | grep  -o ','| wc -l)
-                    [ $day_count -eq 0 ] && day_count=1
+                    local day_count=$(expr $(echo "$plan_day" | grep  -o ','| wc -l) + 1)
+                    #[ $day_count -eq 0 ] && day_count=1
                     timeifdi=""
                     until [ $iday -lt 0 -o $iday -gt ${day_count} ]; do
-                         item_day=$(echo "$plan_day"|cut -d, -f $iday)
+                         item_day=$(echo "$plan_day"|cut -d, -f$iday)
                          if [ "$day" = "7" -a "$item_day" = "0" ]; then
-                             continue;
-                         fi
-                         if [ "$item_day" != "" ]; then
+                             timeifdi="$day -eq 7"
+                         elif [ "$item_day" != "" ]; then
                              [ "$timeifdi" != "" ] && timeifdi="$timeifdi -a "
                              timeifdi="$timeifdi $day -eq $item_day"
                          fi
                          iday=$(expr $iday + 1)
                     done
                 else
-                    if [ "$pday2" = ""  ]; then
-                        timeifdi="$day -eq $pday1"
-                    elif [ "$day" = "7" ] && [ "$pday1" = "0" -o "$pday2" = "0" ]; then
+                    if [ "$day" = "7" ] && [ "$pday1" = "0" -o "$pday2" = "0" ]; then
                         timeifdi="$day -eq 7"
+                    elif [ "$pday2" = ""  ]; then
+                        timeifdi="$day -eq $pday1"
                     else
                         timeifdi="$day -ge $pday1 -a $day -le $pday2"
                     fi
@@ -361,6 +361,7 @@ now_in_time()
             elif [ "$ptime1" == "*" ]; then
                 timeifti="0 -eq 0"
             fi
+
             local timeifi=1
             if [ "$timeifdi" != "" -a "$timeifti" != "" ]; then
                 [ $timeifdi ] && [ $timeifti ] && timeifi=0
@@ -399,8 +400,7 @@ getServerIP()
         [ 0$num -lt 1 ] && return 
     fi
     local j=1
-    local server_count=$(echo "$1" | grep  -o ','| wc -l)
-    [ $server_count -eq 0 ] && server_count=1
+    local server_count=$(( $(echo "$1" | grep  -o ','| wc -l) + 1))
     local serverIP=""
 
     if ! ping -c 1 -W 2 $dns > /dev/null; then
@@ -451,8 +451,7 @@ SyncTime()
         fi
         if [ "$ntpServerIP" != "" ]; then
              if [ "`which rdate`" != "" ]; then
-                 local c=$(echo "$ntpServerIP" |  grep  -o ','| wc -l)
-                 [ $c -eq 0 ] && c=1
+                 local c=$(( $(echo "$ntpServerIP" |  grep  -o ','| wc -l) + 1))
                  local k=1
                  until [ $k -gt $c ]; do
                      local cur=$(echo "$ntpServerIP" | cut -d, -f$k)
@@ -751,8 +750,7 @@ lockAppNetRun()
             fi
 
             local k=1
-            local uidcount=$(echo $apps | grep -o "," | wc -l)
-            [ $uidcount -eq 0 ] && uidcount=1
+            local uidcount=$(( $(echo $apps | grep -o "," | wc -l) + 1))
             local plans=$(echo "${lockhost}"|cut -d$ -f2)
             local timeif=1
             until [ $k -gt $uidcount ]; do
